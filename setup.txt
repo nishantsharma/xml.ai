@@ -1,0 +1,5 @@
+sudo port install python36
+sudo port install py36-pip
+sudo port select --set pip pip36
+sudo port select --set python python36
+sudo pip install -r requirements.txt
