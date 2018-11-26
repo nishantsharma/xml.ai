@@ -2,3 +2,4 @@ attrdict
 keras>=2.2.2
 tensorflow<=1.9.0,>=1.10.2
 tensorboard<=1.9.0,>=1.10.1
+pydot>=1.2.4

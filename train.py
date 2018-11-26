@@ -51,60 +51,113 @@ http://www.manythings.org/anki/
 '''
 from __future__ import print_function
 
-import json
+import json, argparse
 import numpy as np
 from attrdict import AttrDict
 from keras.models import Model
 from keras.layers import Input, LSTM, Dense
-
+from keras.utils import plot_model
 from utils import saveModel
 from inputs import get_inputs 
 
 # Build training args needed during training and also inference.
-trainArgs = AttrDict()
-trainArgs.batch_size = 64  # Batch size for training.
-trainArgs.epochs = 100  # Number of epochs to train for.
-trainArgs.latent_dim = 256  # Latent dimensionality of the encoding space.
-trainArgs.num_samples = 10000  # Number of samples to train on.
+cmdParser = argparse.ArgumentParser
+cmdParser.add_argument("--batch_size", type = int, default = 64,
+        help="Batch size for training.")
+cmdParser.add_argument("--epochs", type = int, default = 100,
+        help="Number of epochs to train for.")
+cmdParser.add_argument("--num_samples", type = int, default = 10000,
+        help="Number of samples to train on.")
+
+# Model Hyper parameters
+# .
+cmdParser.add_argument("--attrs_code_dim", type = int, default = 256,
+        help="Size of vector space used to encode all attributes of a node.")
+cmdParser.add_argument("--children_code_dim", type = int, default = 512,
+        help="Size of vector space used to encode all children of a node. Encodes mostly pointers.")
+cmdParser.add_argument("--attrs_decoder_dim", type = int, default = 512,
+        help="Latent dimensionality of attributes encoding space.")
+cmdParser.add_argument("--children_decoder_dim", type = int, default = 512,
+        help="Latent dimensionality of attributes encoding space.")
+cmdParser.add_argument("--max_node_attributes_count", type = int, default = 32,
+        help="Maximum number of attributes in a node.")
+cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
+        help="Maximum number of attributes in a node.")
+cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
+        help="Maximum number of attributes in the entire schema.")
+cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
+        help="Maximum number of attributes in the entire schema.")
+
+
+
+
+# Parse the arguments and build the dictionary.
+modelArgs = cmdParser.parse_args()
+
+# Derived model params.
+# Dimensionality of tensor representing complete transferable information that flows up to the parent node.
+modelArgs.node_code_dim = modelArgs.children_code_dim + modelArgs.attrs_code_dim
+
 # Path to the data txt file on disk.
-trainArgs.data_path = 'fra-eng/fra.txt'
+modelArgs.data_path = 'fra-eng/fra.txt'
 
-# Get inputs.
-inputs = get_inputs(trainArgs)
+# Build attrbute encoder inputs.
+nodeNameInput = Input(shape=(None, modelArgs.schemaNodeCount))
+parentInput = Input(shape=(None, modelArgs.attrs_code_dim))
+numChildrenInput = Input(shape=(None, 1))
 
-# Define an input sequence and process it.
-encoder_inputs = Input(shape=(None, trainArgs.num_encoder_tokens))
-encoder = LSTM(trainArgs.latent_dim, return_state=True)
-encoder_outputs, state_h, state_c = encoder(encoder_inputs)
-# We discard `encoder_outputs` and only keep the states.
-encoder_states = [state_h, state_c]
+# Instantiate codecs.
+attributesCodec = AttributesCodec()
+childrenCodec = ChildrenCodec() 
 
-# Set up the decoder, using `encoder_states` as initial state.
-decoder_inputs = Input(shape=(None, trainArgs.num_decoder_tokens))
-# We set up our decoder to return full output sequences,
-# and to return internal states as well. We don't use the
-# return states in the training model, but we will use them in inference.
-decoder_lstm = LSTM(trainArgs.latent_dim, return_sequences=True, return_state=True)
-decoder_outputs, _, _ = decoder_lstm(decoder_inputs,
-                                     initial_state=encoder_states)
-decoder_dense = Dense(trainArgs.num_decoder_tokens, activation='softmax')
-decoder_outputs = decoder_dense(decoder_outputs)
+# Encode attributes. 
+attributesEncoderInputs = attributesCodec.encoderInputs()
+attributesEncoderOutputs = attributesCodec.encoder(attrEncoderInputs) 
+
+# Encode children. 
+childrenEncoderInputs = childrenCodec.encoderInputs()
+childrenEncoderOutputs = childrenCodec.encoder(childrenEncoderInputs) 
+
+# Decode new attributes
+newAttrbutesTensor = attribuetsCodec.decode(attributesEncoderOutputs, childrenEncoderOutputs)
+
+# Decode children 
+newChildrenTensor = childrenCodec.decode(attributesEncoderOutputs, childrenEncoderOutputs)  
+
+decoderInputs = Concat(attrCodeTensor, childrenCodeTensor) 
+
+# Instantiate decoder GRU.
+childrenDecoder = GRU(modelArgs.children_decoder_dim, return_sequences=True, return_state=True)
+attrsDecoder = GRU(modelArgs.attrs_decoder_dim, return_sequences=True, return_state=True)
+
+# Apply decoder GRU on encoder outputs.
+childrenCode = childrenDecoder(decoderInputs)
+attrCode = attributeDecoder(decoderInputs)
+
+# Apply activation on children and attribute code.
+childrenCodeActivated = Dense(modelArgs.num_children_tokens, activation='softmax')
+attrsCodeActivated = Dense(modelArgs.num_attrs_tokens, activation='softmax')
 
 # Define the model that will turn
 # `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
-trainer_model = Model([encoder_inputs, decoder_inputs], decoder_outputs)
+trainer_model = Model([attributesCodec.tensorInputs(), childrenCodec.tensorInputs() , decoderInputs], decoder_outputs)
+
+# Get inputs.
+inputData = get_inputs(modelArgs)
+
+plot_model(trainer_model, to_file="plot.png")
 
 # Run training
 trainer_model.compile(optimizer='rmsprop', loss='categorical_crossentropy')
 trainer_model.fit(
-        [inputs.encoder_input_data, inputs.decoder_input_data],
-        inputs.decoder_target_data,
-        batch_size=trainArgs.batch_size,
-        epochs=trainArgs.epochs,
+        [inputData.encoder_input_data, inputData.decoder_input_data],
+        inputData.decoder_target_data,
+        batch_size=modelArgs.batch_size,
+        epochs=modelArgs.epochs,
         validation_split=0.2)
 
 # Save model
 saveModel(trainer_model, 't_s2s.json')
-with open("trainArgs.json", "w") as fp:
-    json.dump(trainArgs, fp)
+with open("modelArgs.json", "w") as fp:
+    json.dump(modelArgs, fp)
 

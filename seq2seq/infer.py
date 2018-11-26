@@ -65,18 +65,18 @@ import numpy as np
 trainer_model = loadModel('t_s2s.json')
 
 # Load training args.
-with open("modelArgs.json", "r") as fp:
-    modelArgs = AttrDict(json.load(fp))
+with open("trainArgs.json", "r") as fp:
+    trainArgs = AttrDict(json.load(fp))
 
     # Reverse-lookup token index to decode sequences back to
     # something readable.
-    modelArgs.reverse_input_char_index = dict(
-        (i, char) for char, i in modelArgs.input_token_index.items())
-    modelArgs.reverse_target_char_index = dict(
-        (i, char) for char, i in modelArgs.target_token_index.items())
+    trainArgs.reverse_input_char_index = dict(
+        (i, char) for char, i in trainArgs.input_token_index.items())
+    trainArgs.reverse_target_char_index = dict(
+        (i, char) for char, i in trainArgs.target_token_index.items())
 
-    modelArgs.num_encoder_tokens = len(modelArgs.input_token_index)
-    modelArgs.num_decoder_tokens = len(modelArgs.target_token_index)
+    trainArgs.num_encoder_tokens = len(trainArgs.input_token_index)
+    trainArgs.num_decoder_tokens = len(trainArgs.target_token_index)
 
 encoder_inputs = trainer_model.input[0]   # input_1
 encoder_outputs, state_h_enc, state_c_enc = trainer_model.layers[2].output   # lstm_1
@@ -84,8 +84,8 @@ encoder_states = [state_h_enc, state_c_enc]
 encoder_model = Model(encoder_inputs, encoder_states)
 
 decoder_inputs = trainer_model.input[1]   # input_2
-decoder_state_input_h = Input(shape=(modelArgs.latent_dim,), name='input_3')
-decoder_state_input_c = Input(shape=(modelArgs.latent_dim,), name='input_4')
+decoder_state_input_h = Input(shape=(trainArgs.latent_dim,), name='input_3')
+decoder_state_input_c = Input(shape=(trainArgs.latent_dim,), name='input_4')
 decoder_states_inputs = [decoder_state_input_h, decoder_state_input_c]
 decoder_lstm = trainer_model.layers[3]
 decoder_outputs, state_h_dec, state_c_dec = decoder_lstm(
@@ -102,9 +102,9 @@ def decode_sequence(input_seq):
     states_value = encoder_model.predict(input_seq)
 
     # Generate empty target sequence of length 1.
-    target_seq = np.zeros((1, 1, modelArgs.num_decoder_tokens))
+    target_seq = np.zeros((1, 1, trainArgs.num_decoder_tokens))
     # Populate the first character of target sequence with the start character.
-    target_seq[0, 0, modelArgs.target_token_index['\t']] = 1.
+    target_seq[0, 0, trainArgs.target_token_index['\t']] = 1.
 
     # Sampling loop for a batch of sequences
     # (to simplify, here we assume a batch of size 1).
@@ -116,17 +116,17 @@ def decode_sequence(input_seq):
 
         # Sample a token
         sampled_token_index = np.argmax(output_tokens[0, -1, :])
-        sampled_char = modelArgs.reverse_target_char_index[sampled_token_index]
+        sampled_char = trainArgs.reverse_target_char_index[sampled_token_index]
         decoded_sentence += sampled_char
 
         # Exit condition: either hit max length
         # or find stop character.
         if (sampled_char == '\n' or
-           len(decoded_sentence) > modelArgs.max_decoder_seq_length):
+           len(decoded_sentence) > trainArgs.max_decoder_seq_length):
             stop_condition = True
 
         # Update the target sequence (of length 1).
-        target_seq = np.zeros((1, 1, modelArgs.num_decoder_tokens))
+        target_seq = np.zeros((1, 1, trainArgs.num_decoder_tokens))
         target_seq[0, 0, sampled_token_index] = 1.
 
         # Update states
@@ -135,7 +135,7 @@ def decode_sequence(input_seq):
     return decoded_sentence
 
 # Get inputs.
-inputs = get_inputs(modelArgs)
+inputs = get_inputs(trainArgs)
 
 for seq_index in range(100):
     # Take one sequence (part of the training set)
