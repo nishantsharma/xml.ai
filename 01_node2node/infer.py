@@ -52,12 +52,12 @@ http://www.manythings.org/anki/
 from __future__ import print_function
 
 import json
-from attrdict import AttrDict
+from orderedattrdict import AttrDict
 from keras.models import Model
 from keras.layers import Input, LSTM, Dense
 
 from utils import loadModel
-from inputs import get_inputs 
+from inputs import get_inputs
 
 import numpy as np
 

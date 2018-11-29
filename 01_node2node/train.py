@@ -53,12 +53,12 @@ from __future__ import print_function
 
 import json, argparse
 import numpy as np
-from attrdict import AttrDict
+from orderedattrdict import AttrDict
 from keras.models import Model
 from keras.layers import Input, LSTM, Dense
 from keras.utils import plot_model
 from utils import saveModel
-from inputs import get_inputs 
+from inputs import get_inputs
 
 # Build training args needed during training and also inference.
 cmdParser = argparse.ArgumentParser
@@ -82,13 +82,13 @@ cmdParser.add_argument("--children_decoder_dim", type = int, default = 512,
 cmdParser.add_argument("--max_node_attributes_count", type = int, default = 32,
         help="Maximum number of attributes in a node.")
 cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
-        help="Maximum number of attributes in a node.")
+        help="Maximum number of attributes in a single node.")
 cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
         help="Maximum number of attributes in the entire schema.")
-cmdParser.add_argument("--total_schema_attributes_count", type = int, default = 128,
-        help="Maximum number of attributes in the entire schema.")
-
-
+cmdParser.add_argument("--max_attribute_values_len", type = int, default = 128,
+        help="Maximum length of attributes values.")
+cmdParser.add_argument("--max_node_children_count", type = int, default = 128,
+        help="Maximum number of children of a node.")
 
 
 # Parse the arguments and build the dictionary.
@@ -101,46 +101,35 @@ modelArgs.node_code_dim = modelArgs.children_code_dim + modelArgs.attrs_code_dim
 # Path to the data txt file on disk.
 modelArgs.data_path = 'fra-eng/fra.txt'
 
-# Build attrbute encoder inputs.
-nodeNameInput = Input(shape=(None, modelArgs.schemaNodeCount))
-parentInput = Input(shape=(None, modelArgs.attrs_code_dim))
-numChildrenInput = Input(shape=(None, 1))
-
 # Instantiate codecs.
 attributesCodec = AttributesCodec()
-childrenCodec = ChildrenCodec() 
+childrenCodec = ChildrenCodec()
 
-# Encode attributes. 
+# Encode attributes.
 attributesEncoderInputs = attributesCodec.encoderInputs()
-attributesEncoderOutputs = attributesCodec.encoder(attrEncoderInputs) 
+attributesEncoderOutputs = attributesCodec.encoder(attrEncoderInputs)
 
-# Encode children. 
+# Encode children.
 childrenEncoderInputs = childrenCodec.encoderInputs()
-childrenEncoderOutputs = childrenCodec.encoder(childrenEncoderInputs) 
+childrenEncoderOutputs = childrenCodec.encoder(childrenEncoderInputs)
 
 # Decode new attributes
 newAttrbutesTensor = attribuetsCodec.decode(attributesEncoderOutputs, childrenEncoderOutputs)
 
-# Decode children 
-newChildrenTensor = childrenCodec.decode(attributesEncoderOutputs, childrenEncoderOutputs)  
+# Decode children
+newChildrenTensor = childrenCodec.decode(attributesEncoderOutputs, childrenEncoderOutputs)
 
-decoderInputs = Concat(attrCodeTensor, childrenCodeTensor) 
+decoderInputs = [attrCodeTensor, childrenCodeTensor]
 
-# Instantiate decoder GRU.
-childrenDecoder = GRU(modelArgs.children_decoder_dim, return_sequences=True, return_state=True)
-attrsDecoder = GRU(modelArgs.attrs_decoder_dim, return_sequences=True, return_state=True)
-
-# Apply decoder GRU on encoder outputs.
-childrenCode = childrenDecoder(decoderInputs)
-attrCode = attributeDecoder(decoderInputs)
-
-# Apply activation on children and attribute code.
-childrenCodeActivated = Dense(modelArgs.num_children_tokens, activation='softmax')
-attrsCodeActivated = Dense(modelArgs.num_attrs_tokens, activation='softmax')
+# Apply decoder on encoder outputs.
+childrenCodeActivated = childrenCodec.decode(decoderInputs)
+attrsCodeActivated = attributeCodec.decode(decoderInputs)
 
 # Define the model that will turn
 # `encoder_input_data` & `decoder_input_data` into `decoder_target_data`
-trainer_model = Model([attributesCodec.tensorInputs(), childrenCodec.tensorInputs() , decoderInputs], decoder_outputs)
+trainer_model = Model(
+        [*attributesEncoderInputs, *childrenEncoderInputs, *decoderInputs],
+        [childrenCodeActivated, attrsCodeActivated])
 
 # Get inputs.
 inputData = get_inputs(modelArgs)

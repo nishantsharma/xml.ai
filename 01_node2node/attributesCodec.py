@@ -1,29 +1,31 @@
+from orderedattrdict import AttrDict
+from codec import Codec
 
 class AttributesCodec(Codec):
     def __init__(self, modelArgs):
-        self.modelArgs = modelArgs
+        super().__init__(modelArgs)
 
     def encoderInputs(self):
         # Build inputs.
         nodeNameCharTensorsInput = Input(shape=(None, modelArgs.schemaNodeCount))
-        parentInput = Input(shape=(None, modelArgs.attrs_code_dim)) 
-        numChildrenInput = Input(shape=(None, 1)) 
+        parentInput = Input(shape=(None, modelArgs.attrs_code_dim))
+        numChildrenInput = Input(shape=(None, 1))
         attrIdTensorsInput = Input(shape=(None,
-            modelArgs.max_node_attrbutes_count,
-            modelArgs.total_schema_attributes_count))
+            self.modelArgs.max_node_attrbutes_count,
+            self.modelArgs.total_schema_attributes_count))
         attrValueTensorsInput = Input(shape=(None,
-            modelArgs.max_node_attrbutes_count,
-            modelArgs.maxAttributeValueLen))
+            self.modelArgs.max_node_attrbutes_count,
+            self.modelArgs.max_attribute_values_len))
 
         # Return inputs list.
-        allInputs = AttrDict({ 
+        allInputs = AttrDict({
                 "nodeName": nodeNameCharTensorsInput,
                 "parent": parentInput,
                 "numChilren": numChildrenInput,
                 "attrIds": attrIdTensorsInput,
                 "attrValues": attrValueTensorsInput
                 })
-        return allInputs 
+        return allInputs
 
     def encoder(self, inputs):
         modelArgs = self.modelArgs
@@ -37,13 +39,12 @@ class AttributesCodec(Codec):
 
         # Encode node name and attributes.
         nodeNameTensor = GRU(modelArgs.name_code_dim, return_state=True)(inputs.nodeName)
-        attrsTensor = GRU(modelArgs.attrs_code_dim, return_state=True)(inputs.attrChainTensors)
-
-        attrEncoderInputs = Concat(attrsTensor, nodeNameTensor, childCountTensor)
-
+        attrKeyValuePairTensors = Concat(attrIdtensorsInput, attrValueTensorsInput)
+        attributesTensor = GRU(modelArgs.attrs_code_dim, return_state=True)(attrKeyValuePairTensors)
+        attrEncoderInputs = Concat(nodeNameTensor, childCountTensor, attributesTensor)
         attrCodeTensor = GRU(modelArgs.attrs_code_dim, return_state=True)(attrEncoderInputs)
 
-        # Concat inputs.
+        # Concat initial state inputs.
         inputTensor = Concat(nodeNameInput, parentInput, numChildrenInput)
 
         # Reshaping inputs with a RELU layer.
@@ -56,31 +57,24 @@ class AttributesCodec(Codec):
         # Concatenate state outputs. That is the encoded state.
         attrCodes = [attrCodes_h, attrCodes_c]
 
-        # Save the design in object memory.
-        self.inputs = [nodeNameInput, parentInput, numChildrenInput]
-        self.outputs = attrCodes
+        # Return the output.
+        return attrCodes
+
+    def encode(self, origNodeName, origChildren, origAttrs):
+        pass
 
     def decoder(self, attrbutesTensor, childrenTensor):
         # Instantiate decoder GRU.
-        childrenDecoder = GRU(modelArgs.children_decoder_dim, return_sequences=True, return_state=True)
         attrsDecoder = GRU(modelArgs.attrs_decoder_dim, return_sequences=True, return_state=True)
-        
+
         # Apply decoder GRU on encoder outputs.
-        childrenCode = childrenDecoder(decoderInputs)
         attrCode = attributeDecoder(decoderInputs)
-        
+
         # Apply activation on children and attribute code.
-        childrenCodeActivated = Dense(modelArgs.num_children_tokens, activation='softmax')
         attrsCodeActivated = Dense(modelArgs.num_attrs_tokens, activation='softmax')
-
-
-
 
     def autoConfigXmls(self, xmlList):
         self.modelArgs.nodeNameDict = {}
-
-    def tensorInputs(self):
-        return self.inputs
 
     def autoConfigXmlNodes(self, xmlNodes):
         pass
