@@ -59,6 +59,7 @@ cmdParser.add_argument("--node_decoder_gru_width", type = int, default = 6,
 modelArgs = cmdParser.parse_args()
 
 # NodeAttrsEncoder encodes attribuets of tree nodes.
+learnerForXMLDelta = LearnerForXMLDelta(modelArgs)
 nodeAttrsEncoder = NodeAttrsEncoder(modelArgs)
 
 # Run the filter and get output data.

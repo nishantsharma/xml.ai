@@ -1,3 +1,8 @@
+torch
+numpy
+dill
+tqdm
+torchtext
+msgpack
+xmlschema
 orderedattrdict
-torch>=0.4.1
-pydot>=1.2.4

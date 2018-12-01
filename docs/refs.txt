@@ -14,3 +14,6 @@ Geometric Deep Learning.
 
 Neural Machine Translation by Jointly Learning to Align and Translate
     https://arxiv.org/abs/1409.0473
+
+Convolutional sequence to sequence learning.
+    https://arxiv.org/abs/1705.03122

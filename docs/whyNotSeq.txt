@@ -1,0 +1,5 @@
+seq2seq is bandwidth limited. It will find it hard to transfer large
+amounts of information through the fixed length encoder/decoder.
+
+Node reorderings and transformations are easy to handle with a model which
+respects hierarchy already.

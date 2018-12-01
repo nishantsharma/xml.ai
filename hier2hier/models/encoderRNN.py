@@ -11,7 +11,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
-from baseRNN import BaseRNN
+from .baseRNN import BaseRNN
 
 class EncoderRNN(BaseRNN):
     """
@@ -47,18 +47,24 @@ class EncoderRNN(BaseRNN):
         >>> output, hidden = encoder(input)
 
     """
-    def __init__(self, vocab_size, max_len, hidden_size,
+    def __init__(self, vocab_size, max_len, input_size, hidden_size,
             input_dropout_p=0, dropout_p=0, n_layers=1, bidirectional=False, rnn_cell="gru", variable_lengths=False,
-            embeddding=None, updte_embedding=True):
+            embedding=None, update_embedding=True):
         super().__init__(vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell)
         
+        self.input_size = input_size
+        self.hidden_size = hidden_size
         self.variable_lengths = variable_lengths
-        self.embeddding = embeddding
-        if embeddding is not None:
+        self.embedding = embedding
+        if embedding is not None:
             self.embedding.weight = nn.Parameter(embedding)
-        self.embedding.weight.requires_grad = update_embedding
-        self.rnn = self.rnn_cell(hidden_size, hidden_size, n_layers,
+            self.embedding.weight.requires_grad = update_embedding
+        self.rnn = self.rnn_cell(input_size, hidden_size, n_layers,
                                 batch_first=True, bidirectional=bidirectional, dropout=dropout_p)
+
+    @property
+    def output_vec_len(self):
+        return self.input_size, self.hidden_size
 
     def forward(self, input_var, input_lengths=None):
         """
@@ -73,7 +79,6 @@ class EncoderRNN(BaseRNN):
             - **output** (batch, seq_len, hidden_size): variable containing the encoded features of the input sequence
             - **hidden** (num_layers * num_directions, batch, hidden_size): variable containing the features in the       hidden state h
         """
-        :
         # Embed the input(s).
         embedded = input_var if self.embedding is None else self.embedding(input_var)
         
@@ -90,58 +95,3 @@ class EncoderRNN(BaseRNN):
             output, _ = nn.utils.rnn.pack_packed_sequence(output, batch_first=True)
 
         return output, hidden
-
-class NodeAttrsEncoder(SeqEncoder):
-    def __init__(self, modelArgs):
-        super().__init__(modelArgs)
-        # Build inputs.
-        nodeNamesTensorInput = Input(shape=(
-            None,
-            modelArgs.max_node_count,
-            modelArgs.max_node_name_len,
-            modelArgs.value_symbols_count,
-            ))
-        nodeAttrsTensorInput = Input(shape=(
-            None,
-            modelArgs.max_node_count,
-            modelArgs.total_attrs_count,
-            modelArgs.max_node_attr_len,
-            modelArgs.value_symbols_count,
-            ))
-        nodeAdjacencyTensorInput = Input(shape=(
-            None,
-            modelArgs.max_node_count,
-            modelArgs.max_node_fanout+1,
-            ))
-        self._inputs = [nodeNamesTensorInput, nodeAttrsTensorInput, nodeAdjacencyTensorInput]
-
-        vectorisedNodeAttrsTensor = Dense()((nodeNamesTensorInput, nodeAttrsTensorInput))
-        layers = [vectorisedNodeAttrsTensor]
-        for i in range(modelArgs.graph_encoder_stack_depth):
-            layers.append(self.__propagateNodeInfo(nodeAdjacencyTensorInput, layers[-1]))
-
-        self._outputs = layers[-1]
-
-    def __propagateNodeInfo(nodeAdjacencySpecTensor, nodeInfoTensor):
-        nodeInfoUpdatedForNbrsTensor = Dense(nodeInfoTensor.shape[0])(nodeInfoTensor)
-        parentNodeInfoTensor = IndexedNodeAverageLayer(
-                nodeInfoUpdatedForParentTensor,
-                nodeAdjacencySpecTensor[..., 0..1])
-        nodeInfoUpdatedForParentTensor = Dense(nodeInfoTensor.shape[0])(nodeInfoTensor)
-        nbrNodesInfoTensor = IndexedNodeAverageLayer(nodeInfoUpdatedForNbrsTensor, nodeAdjacencySpecTensor[..., 1...])
-
-        updateGateTensor = Activation()
-        resetGateTensor = Activation()
-        parentGateTensor = Activation()
-
-        newNodeInfoTensor = parentGateTensor * parentNodeInfoTensor + (1-parentGateTensor) * nbrNodesInfoTensor
-        propagatedNodeInfoTensor = (1-updateGateTensor) * nodeInfoTensor + updateGateTensor * newNodeInfoTensor
-
-        return propagatedNodeInfoTensor
-
-    def inputs(self):
-        return self._inputs
-
-    def outputs(self):
-        return self._outputs
-

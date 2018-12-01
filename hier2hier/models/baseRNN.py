@@ -32,10 +32,10 @@ class BaseRNN(nn.Module):
         SYM_MASK: masking symbol
         SYM_EOS: end-of-sequence symbol
     """
-     SYM_MASK = "MASK"
-     SYM_EOS = "EOS"
+    SYM_MASK = "MASK"
+    SYM_EOS = "EOS"
 
-     def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell):
+    def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell):
         super(BaseRNN, self).__init__()
         self.vocab_size = vocab_size
         self.max_len = max_len

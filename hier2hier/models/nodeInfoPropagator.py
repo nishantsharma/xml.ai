@@ -13,23 +13,26 @@ import torch.nn.functional as F
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class NodeInfoPropagate(nn.Module):
-    def __init__(self, modelArgs):
+class NodeInfoPropagator(nn.Module):
+    def __init__(self,
+            encoded_node_vec_len,
+            propagated_info_len,
+            node_info_propagator_stack_depth):
         super().__init__()
-        self.modelArgs = modelArgs
+        self.encoded_node_vec_len = encoded_node_vec_len
+        self.propagated_info_len = propagated_info_len
+        self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
 
-        self.parentOp = torch.nn.FullyConnected()
-        self.neighborOp = torch.nn.FullyConnected()
+        self.parentOp = torch.nn.ReLU()
+        self.neighborOp = torch.nn.ReLU()
 
         # Neighbor info gate.
-        self.gruCell = torch.nn.GRUCell()
+        self.gruCell = torch.nn.GRUCell(encoded_node_vec_len, propagated_info_len)
 
-    def forward(nodeAdjacencySpecTensor, nodeNamesEncoded, nodeAttributesEncoded):
-        nodeInfosEncoded = self.concat(nodeNamesEncoded, nodeAttributesEncoded)
-
+    def forward(nodeAdjacencySpecTensor, nodeInfosEncoded):
         nodeInfoPropagated = self.fullyConnected(nodeInfosEncoded)
         
-        for i in range(modelArgs.graph_encoder_stack_depth):
+        for i in range(self.node_info_propagator_stack_depth):
             # Pre-compute node infos to propagate in the role of parent and neighbor respetivaly.
             parentInfosToPropagate = self.parentOp(nodeInfoPropagated)
             neighborInfosToPropagate = self.neighborOp(nodeInfoPropagated)
