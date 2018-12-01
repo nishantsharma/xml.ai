@@ -1,0 +1,16 @@
+Gated Graph Sequence Neural Networks
+    https://arxiv.org/abs/1511.05493
+Neural Tree Transducers for Tree to Tree Learning
+    http://openreview.net/pdf?id=rJBwoM-Cb
+
+Tree2Tree Learning with memory unit.
+    http://openreview.net/pdf?id=Syt0r4bRZ
+
+Relational inductive biases, deep learning, and graph networks
+    https://arxiv.org/pdf/1806.01261.pdf
+
+Geometric Deep Learning.
+    http://geometricdeeplearning.com/
+
+Neural Machine Translation by Jointly Learning to Align and Translate
+    https://arxiv.org/abs/1409.0473
