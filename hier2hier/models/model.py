@@ -48,23 +48,25 @@ class Hier2hier(nn.Module):
             modelArgs.output_decoder_state_width,
             modelArgs.max_node_count)
 
-    def forward(self, xmlTreeList):
-        nodeAdjacencySpecTensor = nn.zeros((
+    def forward(self, xmlTreeList, tagetOutput, teacher_forcing_ratio=None):
+        nodeAdjacencySpecTensor = torch.zeros((
             len(xmlTreeList),
-            self.max_nodes_in_tree,
-            self.max_node_count,
-            self.max_node_fanout+1))
+            self.modelArgs.max_node_count,
+            self.modelArgs.max_node_fanout+1))
 
         for treeIndex, xmlTree in enumerate(xmlTreeList):
+            node2Index = {}
+            node2parent = { c:p for p in xmlTree.getiterator() for c in p }
+            node2parent[xmlTree.getroot()] = xmlTree.getroot()
             # Assign indices to all nodes in current tree.
             for nodeIndex, node in enumerate(xmlTree.iter()):
-                node.index = nodeIndex
+                node2Index[node] = nodeIndex
 
             # Build neighborhood tensor.
             for node in xmlTree.iter():
-                nodeAdjacencySpecTensor[treeIndex:node.index:0] = node.parent.index
-                for childIndex, childNode in enumerate(node.children):
-                    nodeAdjacencySpecTensor[treeIndex:node.index:childIndex+1] = childNode.index
+                nodeAdjacencySpecTensor[treeIndex, node2Index[node], 0] = node2Index[node2parent[node]]
+                for childIndex, childNode in enumerate(node):
+                    nodeAdjacencySpecTensor[treeIndex, node2Index[node], childIndex+1] = node2Index[childNode]
 
         nodeInfoTensor = self.nodeInfoEncoder(nodeAdjacencySpecTensor, xmlTreeList)
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(nodeAdjacencySpecTensor, nodeInfoTensor)

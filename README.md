@@ -37,7 +37,7 @@ If you already had a version of PyTorch installed on your system, please verify 
 
 	# Run script to generate the reverse toy dataset
     # The generated data is stored in data/toy_reverse by default
-	./scripts/toy.sh -s toy_schema.xsd -e PurchaseOrder
+	./scripts/toy.sh
 
 ### Train and play
 	TRAIN_PATH=data/toy_reverse/train/

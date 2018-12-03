@@ -146,7 +146,6 @@ else:
             src.vocabs.attribValues,
             tgt.vocab)
 
-        import pdb;pdb.set_trace()
         if torch.cuda.is_available():
             hier2hier.cuda()
 

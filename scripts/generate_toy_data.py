@@ -53,7 +53,7 @@ if __name__ == '__main__':
     if not os.path.exists(data_dir):
         os.mkdir(data_dir)
 
-    toy_dir = os.path.join(data_dir, 'toy_reverse')
+    toy_dir = os.path.join(data_dir, 'toy_PurchaseOrderAddrSwap')
     if not os.path.exists(toy_dir):
         os.mkdir(toy_dir)
 

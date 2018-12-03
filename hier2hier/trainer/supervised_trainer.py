@@ -48,10 +48,10 @@ class SupervisedTrainer(object):
 
         self.logger = logging.getLogger(__name__)
 
-    def _train_batch(self, input_variable, input_lengths, target_variable, model, teacher_forcing_ratio):
+    def _train_batch(self, input_variable, target_variable, model, teacher_forcing_ratio):
         loss = self.loss
         # Forward propagation
-        decoder_outputs, decoder_hidden, other = model(input_variable, input_lengths, target_variable,
+        decoder_outputs, decoder_hidden, other = model(input_variable, target_variable,
                                                        teacher_forcing_ratio=teacher_forcing_ratio)
         # Get loss
         loss.reset()
@@ -75,8 +75,8 @@ class SupervisedTrainer(object):
         device = None if torch.cuda.is_available() else -1
         batch_iterator = torchtext.data.BucketIterator(
             dataset=data, batch_size=self.batch_size,
-            sort=False, sort_within_batch=True,
-            sort_key=lambda x: len(x.src),
+            sort=False, #sort_within_batch=True,
+            #sort_key=lambda x: len(x.src),
             device=device, repeat=False)
 
         steps_per_epoch = len(batch_iterator)
@@ -97,10 +97,10 @@ class SupervisedTrainer(object):
                 step += 1
                 step_elapsed += 1
 
-                input_variables, input_lengths = getattr(batch, hier2hier.src_field_name)
+                input_variables = getattr(batch, hier2hier.src_field_name)
                 target_variables = getattr(batch, hier2hier.tgt_field_name)
 
-                loss = self._train_batch(input_variables, input_lengths.tolist(), target_variables, model, teacher_forcing_ratio)
+                loss = self._train_batch(input_variables, target_variables, model, teacher_forcing_ratio)
 
                 # Record average loss
                 print_loss_total += loss

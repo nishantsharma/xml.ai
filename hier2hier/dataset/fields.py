@@ -16,7 +16,7 @@ class SourceField(torchtext.data.RawField):
         import pdb;pdb.set_trace()
 
     def postprocess(self,  batch):
-        import pdb;pdb.set_trace()
+        return batch
         
     def build_vocabs(self, hier_dataset, max_size=None):
         # Collect all symbols.

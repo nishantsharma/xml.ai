@@ -22,7 +22,7 @@ class TagEncoder(nn.Module):
         return [1 if j==i else 0 for j in range(len(self.tagsVocab))]
 
     def forward(self, tagLists):
-        return torch.Tensor([self.onhotencode(self.tagsVocab[tag]) for tag in tagList])
+        return torch.Tensor([[self.__onehotencode(self.tagsVocab[tag]) for tag in tagList] for tagList in tagLists])
 
     @property
     def output_vec_len(self):
@@ -69,7 +69,7 @@ class NodeInfoEncoder(nn.Module):
         super().__init__()
 
         # Build component encoders.
-        self.tagEncoder = TagEncoder(tagsVocab)
+        self.tagsEncoder = TagEncoder(tagsVocab)
         self.nodeTextEncoder = EncoderRNN(len(textVocab), max_node_text_len, len(textVocab), node_text_vec_len)
         self.attribValueEncoder = EncoderRNN(len(attribValueVocab), max_attrib_value_length, len(attribValueVocab), attrib_value_vec_len)
         self.attribsEncoder = AttribsEncoder(attribsVocab, self.attribValueEncoder)
@@ -77,13 +77,13 @@ class NodeInfoEncoder(nn.Module):
     @property
     def output_vec_len(self):
         retval = 0
-        retval += self.tagEncoder.output_vec_len
+        retval += self.tagsEncoder.output_vec_len
         retval += self.nodeTextEncoder.output_vec_len[1]
         retval += self.attribsEncoder.output_vec_len
         return retval
 
     def forward(self, nbrhoodSpecTensor, xmlTreeList):
-        encodedTags = self.labelsEncoder(xmlTreeList)
+        encodedTags = self.tagsEncoder(xmlTreeList)
         encodedText = self.nodeTextEncoder(xmlTreeList)
         encodedAttributes = self.labelsEncoder(xmlTreeList)
 
