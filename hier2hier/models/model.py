@@ -23,7 +23,9 @@ class Hier2hier(nn.Module):
             textVocab,
             attribsVocab,
             attribValueVocab,
-            outputVocab):
+            outputVocab,
+            sos_id,
+            eos_id):
         super().__init__()
         self.modelArgs = modelArgs
         self.nodeInfoEncoder = NodeInfoEncoder(
@@ -31,6 +33,7 @@ class Hier2hier(nn.Module):
             textVocab,
             attribsVocab,
             attribValueVocab,
+            modelArgs.max_node_count,
             modelArgs.max_node_text_len,
             modelArgs.node_text_vec_len,
             modelArgs.max_attrib_value_length,
@@ -41,35 +44,60 @@ class Hier2hier(nn.Module):
             modelArgs.propagated_info_len,
             modelArgs.node_info_propagator_stack_depth)
 
-        outputDecoderConfig = {}
         self.outputDecoder = OutputDecoder(
             outputVocab,
             modelArgs.propagated_info_len,
             modelArgs.output_decoder_state_width,
-            modelArgs.max_node_count)
+            modelArgs.output_decoder_stack_depth,
+            modelArgs.max_node_count,
+            modelArgs.max_output_len,
+            sos_id,
+            eos_id,
+            modelArgs.input_dropout_p,
+            modelArgs.dropout_p,
+            modelArgs.use_attention,
+            )
 
-    def forward(self, xmlTreeList, tagetOutput, teacher_forcing_ratio=None):
+    def forward(self, xmlTreeList, targetOutput=None, teacher_forcing_ratio=None):
         nodeAdjacencySpecTensor = torch.zeros((
             len(xmlTreeList),
             self.modelArgs.max_node_count,
             self.modelArgs.max_node_fanout+1))
 
+        node2Index = {}
+        node2Parent = {}
+        treeIndex2NodeIndex2NbrIndices = {}
         for treeIndex, xmlTree in enumerate(xmlTreeList):
-            node2Index = {}
-            node2parent = { c:p for p in xmlTree.getiterator() for c in p }
-            node2parent[xmlTree.getroot()] = xmlTree.getroot()
-            # Assign indices to all nodes in current tree.
+            # Build map from node to a unique index for all nodes(including root) in the current tree.
             for nodeIndex, node in enumerate(xmlTree.iter()):
                 node2Index[node] = nodeIndex
 
-            # Build neighborhood tensor.
-            for node in xmlTree.iter():
-                nodeAdjacencySpecTensor[treeIndex, node2Index[node], 0] = node2Index[node2parent[node]]
-                for childIndex, childNode in enumerate(node):
-                    nodeAdjacencySpecTensor[treeIndex, node2Index[node], childIndex+1] = node2Index[childNode]
+            # Initialize nodeIndex2NbrIndices and create an entry for root in it.
+            nodeIndex2NbrIndices = {}
 
-        nodeInfoTensor = self.nodeInfoEncoder(nodeAdjacencySpecTensor, xmlTreeList)
-        nodeInfoPropagatedTensor = self.nodeInfoPropagator(nodeAdjacencySpecTensor, nodeInfoTensor)
-        treeOutputDecoded = self.outputDecoder(nodeInfoPropagatedTensor)
+            # Link nodeIndex2NbrIndices with the global treeIndex2NodeIndex2NbrIndices.
+            treeIndex2NodeIndex2NbrIndices[treeIndex] = nodeIndex2NbrIndices
+
+            # Parent of root is root.
+            # Create an entry for tree root in nodeIndex2NbrIndices.
+            rootIndex = node2Index[xmlTree.getroot()]
+            nodeIndex2NbrIndices[rootIndex] = (rootIndex, [])
+
+            # Create an entry for tree root in node2Parent.
+            node2Parent[xmlTree.getroot()] = xmlTree.getroot()
+
+            # Build map from node to its parent for all nodes in current tree.
+            for node in xmlTree.iter():
+                # The following entry works only because xmlTree iter() is traversing in top down ancestor first manner.
+                curNodeChildrenList = nodeIndex2NbrIndices[node2Index[node]][1]
+                for childNode in node:
+                    node2Parent[childNode] = node
+                    nodeIndex2NbrIndices[node2Index[childNode]] = (node2Index[node], [])
+                    curNodeChildrenList.append(node2Index[childNode])
+
+
+        nodeInfoTensor = self.nodeInfoEncoder(node2Index, node2Parent, xmlTreeList)
+        nodeInfoPropagatedTensor = self.nodeInfoPropagator(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
+        treeOutputDecoded = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput)
 
         return treeOutputDecoded

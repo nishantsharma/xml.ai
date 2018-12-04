@@ -23,34 +23,39 @@ class NodeInfoPropagator(nn.Module):
         self.propagated_info_len = propagated_info_len
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
 
-        self.parentOp = torch.nn.ReLU()
-        self.neighborOp = torch.nn.ReLU()
+        # Upgrade size of input.
+        self.resizeInput = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
+        self.parentOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
+        self.neighborOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
 
         # Neighbor info gate.
-        self.gruCell = torch.nn.GRUCell(encoded_node_vec_len, propagated_info_len)
+        self.gruCell = torch.nn.GRUCell(propagated_info_len, propagated_info_len)
 
-    def forward(nodeAdjacencySpecTensor, nodeInfosEncoded):
-        nodeInfoPropagated = self.fullyConnected(nodeInfosEncoded)
+    def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+        nodeInfoPropagated = self.resizeInput(nodeInfosTensor)
         
         for i in range(self.node_info_propagator_stack_depth):
+            parentInfosToPropagate = torch.zeros(nodeInfoPropagated.shape)
+            neighborInfosToPropagate = torch.zeros(nodeInfoPropagated.shape)
+
+            # Propagate parent info into parentInfosToPropagate and neighborInfosToPropagate.
+            for treeIndex, nodeIndex2NbrIndices in treeIndex2NodeIndex2NbrIndices.items():
+                for nodeIndex, (parentIndex, childIndices) in nodeIndex2NbrIndices.items():
+                    parentInfosToPropagate[treeIndex, nodeIndex] = nodeInfoPropagated[treeIndex, parentIndex]
+                    for childIndex in childIndices:
+                        neighborInfosToPropagate[treeIndex, nodeIndex] += nodeInfoPropagated[treeIndex, childIndex]
+                    neighborInfosToPropagate[treeIndex, nodeIndex] /= len(childIndices)
+
             # Pre-compute node infos to propagate in the role of parent and neighbor respetivaly.
-            parentInfosToPropagate = self.parentOp(nodeInfoPropagated)
-            neighborInfosToPropagate = self.neighborOp(nodeInfoPropagated)
+            parentInfosToPropagate = self.parentOp(parentInfosToPropagate)
+            neighborInfosToPropagate = self.neighborOp(neighborInfosToPropagate)
 
-            # Compute the propagated node infos in loop.
-            neighborsNodeInfoSummary = Tensor(nodeInfoPropagated.shape)
-            for i, nodeAdjacencySpecTensorRow in enumerate(nodeAdjacencySpecTensor):
-                parentInfoPropagatedRow = parentInfosToPropagate[nodeAdjacencySpecTensor[i][0]]
-                neighborInfosPropagatedRow = Tensor(nodeInfoPropagated.shape[1:])
-                nbrCount = 0
-                for nbrIndex in nodeAdjacencySpecTensor[i][1:]:
-                    if nbrIndex < 0:
-                        break
-                    neighborInfosPropagatedRow += neighborInfosToPropagate[nbrIndex]
-                    nbrCount += 1
-                neighborsNodeInfoSummary[i] = parentInfoPropagatedRow + neighborInfosPropagatedRow / nbrCount
+            # Compute final neighbor information summary.
+            neighborsNodeInfoSummary = parentInfosToPropagate + neighborInfosToPropagate
 
-            nodeInfoPropagated = self.gruCell(nodeInfoPropagated, neighborsNodeInfoSummary)
+            # Pass the new information through GRU cell to obtain updated node info.
+            for sampleIndex in range(nodeInfoPropagated.shape[0]):
+                nodeInfoPropagated[sampleIndex] = self.gruCell(nodeInfoPropagated[sampleIndex], neighborsNodeInfoSummary[sampleIndex])
 
         return nodeInfoPropagated
 

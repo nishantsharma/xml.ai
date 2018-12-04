@@ -55,11 +55,15 @@ class EncoderRNN(BaseRNN):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.variable_lengths = variable_lengths
-        self.embedding = embedding
         if embedding is not None:
+            self.embedding = nn.Embedding(vocab_size, input_size)
             self.embedding.weight = nn.Parameter(embedding)
             self.embedding.weight.requires_grad = update_embedding
-        self.rnn = self.rnn_cell(input_size, hidden_size, n_layers,
+            self.rnn_input_size = input_size
+        else:
+            self.embedding = nn.Embedding(vocab_size, input_size)
+            self.rnn_input_size = vocab_size
+        self.rnn = self.rnn_cell(self.rnn_input_size, hidden_size, n_layers,
                                 batch_first=True, bidirectional=bidirectional, dropout=dropout_p)
 
     @property
@@ -87,11 +91,11 @@ class EncoderRNN(BaseRNN):
 
         # If the inputs are variable lengths, we need to pack the sequences.
         if self.variable_lengths:
-            embedded = nn.utils.rnn.pack_added_sequence(embedded, input_lengths, batch_first=True) 
+            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=True) 
 
         # Run the RNN.
         output, hidden = self.rnn(embedded)
         if self.variable_lengths:
-            output, _ = nn.utils.rnn.pack_packed_sequence(output, batch_first=True)
+            output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
 
         return output, hidden

@@ -53,7 +53,7 @@ parser.add_argument("--total_attrs_count", type = int, default = 128,
                     help="Total number of known attributes in the schema..")
 parser.add_argument("--value_symbols_count", type = int, default = 256,
                     help="Total number of symbols used in attribute value strings.")
-parser.add_argument("--max_node_count", type = int, default = 8192,
+parser.add_argument("--max_node_count", type = int, default = 5,
                     help="Maximum number of nodes in an XML file.")
 parser.add_argument("--max_node_name_len", type = int, default = 256,
                     help="Maximum length of name of any node.")
@@ -70,7 +70,7 @@ parser.add_argument("--max_output_len", type = int, default = 16536,
 
 
 # Size meta-parameters of the generated neural network.
-parser.add_argument("--node_text_vec_len", type = int, default = 64,
+parser.add_argument("--node_text_vec_len", type = int, default = 96,
                     help="Length of encoded vector for node text.")
 parser.add_argument("--attrib_value_vec_len", type = int, default = 64,
                     help="Length of an encoded attribute value.")
@@ -79,10 +79,18 @@ parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 
                     + "hops that information would propagate in the graph inside nodeInfoPropagator.")
 parser.add_argument("--propagated_info_len", type = int, default = 64,
                     help="Length of node information vector, when being propagated.")
-parser.add_argument("--node_decoder_stack_depth", type = int, default = 6,
+parser.add_argument("--output_decoder_stack_depth", type = int, default = 3,
                     help="Stack depth of node decoder.")
-parser.add_argument("--output_decoder_state_width", type = int, default = 6,
+parser.add_argument("--output_decoder_state_width", type = int, default = 128,
                     help="Width of GRU cell in output decoder.")
+
+# Other meta-parameters of the generated neural network.
+parser.add_argument("--input_dropout_p", type = int, default = 0,
+                    help="Width of GRU cell in output decoder.")
+parser.add_argument("--dropout_p", type = int, default = 0,
+                    help="Probability of .")
+parser.add_argument("--use_attention", type = int, default = True,
+                    help="Use attention while selcting most appropriate.")
 
 opt = parser.parse_args()
 
@@ -144,7 +152,10 @@ else:
             src.vocabs.text,
             src.vocabs.attribs,
             src.vocabs.attribValues,
-            tgt.vocab)
+            tgt.vocab,
+            tgt.sos_id,
+            tgt.eos_id,
+            )
 
         if torch.cuda.is_available():
             hier2hier.cuda()
