@@ -5,6 +5,9 @@ from collections import Counter
 
 import torchtext
 
+SYM_SOS = '<sos>'
+SYM_EOS = '<eos>'
+
 class SourceField(torchtext.data.RawField):
     """ Wrapper class of torchtext.data.Field that forces batch_first and include_lengths to be True. """
 
@@ -23,14 +26,24 @@ class SourceField(torchtext.data.RawField):
         inputTags, inputAttribs, inputAttribValues, inputText = Counter(), Counter(), Counter(), Counter()
         for inXmlObj in hier_dataset.src:
             for xmlNode in inXmlObj.getroot().iter():
+                # Node tag.
                 inputTags[xmlNode.tag] += 1
+
+                # Node text.
+                inputText[SYM_SOS] += 1
                 for textSym in xmlNode.text:
                     inputText[textSym] += 1
+                inputText[SYM_EOS] += 1
 
                 for attrbName, attribValue in xmlNode.attrib.items():
+                    # Attrib name.
                     inputAttribs[attribName] += 1
+
+                    # Attrib values.
+                    inputAttribValues[SYM_SOS] += 1
                     for attribSym in attribValue:
                         inputAttribValues[attribSym] += 1
+                    inputAttribValues[SYM_EOS] += 1
 
         # Build all vocabs.
         self.vocabs = AttrDict()
@@ -47,8 +60,6 @@ class TargetField(torchtext.data.Field):
         eos_id: index of the end of sentence symbol
     """
 
-    SYM_SOS = '<sos>'
-    SYM_EOS = '<eos>'
 
     def __init__(self, **kwargs):
         logger = logging.getLogger(__name__)
@@ -66,16 +77,17 @@ class TargetField(torchtext.data.Field):
             func = kwargs['preprocessing']
             kwargs['preprocessing'] = lambda seq: [self.SYM_SOS] + func(seq) + [self.SYM_EOS]
 
-        self.sos_id = None
-        self.eos_id = None
+        self.init_token = SYM_SOS
+        self.eos_token = SYM_EOS
         super(TargetField, self).__init__(**kwargs)
 
     def build_vocab(self, *args, **kwargs):
         super(TargetField, self).build_vocab(*args, **kwargs)
-        self.sos_id = self.vocab.stoi[self.SYM_SOS]
-        self.eos_id = self.vocab.stoi[self.SYM_EOS]
+        self.sos_id = self.vocab.stoi[SYM_SOS]
+        self.eos_id = self.vocab.stoi[SYM_EOS]
 
     def build_vocabs(self, hier_dataset, max_size=None):
+        import pdb;pdb.set_trace()
         # Collect all symbols.
         outputChars = Counter()
         for index in range(len(hier_dataset.filePairs)):

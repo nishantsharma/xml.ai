@@ -36,7 +36,7 @@ class Hier2hier(nn.Module):
             modelArgs.max_node_count,
             modelArgs.max_node_text_len,
             modelArgs.node_text_vec_len,
-            modelArgs.max_attrib_value_length,
+            modelArgs.max_attrib_value_len,
             modelArgs.attrib_value_vec_len)
 
         self.nodeInfoPropagator = NodeInfoPropagator(
@@ -58,7 +58,7 @@ class Hier2hier(nn.Module):
             modelArgs.use_attention,
             )
 
-    def forward(self, xmlTreeList, targetOutput=None, teacher_forcing_ratio=None):
+    def forward(self, xmlTreeList, targetOutput=None, teacher_forcing_ratio=0):
         nodeAdjacencySpecTensor = torch.zeros((
             len(xmlTreeList),
             self.modelArgs.max_node_count,

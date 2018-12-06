@@ -45,27 +45,23 @@ parser.add_argument("--batch_size", type = int, default = 64,
                     help="Batch size for training.")
 parser.add_argument("--epochs", type = int, default = 100,
                     help="Number of epochs to train for.")
-parser.add_argument("--num_samples", type = int, default = 10000,
+parser.add_argument("--num_samples", type = int, default = None,
                     help="Number of samples to train on.")
 
 # Schema params.
-parser.add_argument("--total_attrs_count", type = int, default = 128,
-                    help="Total number of known attributes in the schema..")
-parser.add_argument("--value_symbols_count", type = int, default = 256,
-                    help="Total number of symbols used in attribute value strings.")
-parser.add_argument("--max_node_count", type = int, default = 5,
+parser.add_argument("--max_node_count", type = int, default = None,
                     help="Maximum number of nodes in an XML file.")
-parser.add_argument("--max_node_name_len", type = int, default = 256,
-                    help="Maximum length of name of any node.")
-parser.add_argument("--max_node_fanout", type = int, default = 128,
+parser.add_argument("--total_attrs_count", type = int, default = None,
+                    help="Total number of known attributes in the schema..")
+parser.add_argument("--value_symbols_count", type = int, default = None,
+                    help="Total number of symbols used in attribute value strings.")
+parser.add_argument("--max_node_fanout", type = int, default = None,
                     help="Maximum connectivity fanout of an XML node.")
-parser.add_argument("--max_node_attr_len", type = int, default = 256,
-                    help="Maximum length of any attribute value at any node.")
-parser.add_argument("--max_node_text_len", type = int, default = 16536,
+parser.add_argument("--max_node_text_len", type = int, default = None,
                     help="Maximum length of text attribute in a node.")
-parser.add_argument("--max_attrib_value_length", type = int, default = 128,
+parser.add_argument("--max_attrib_value_len", type = int, default = None,
                     help="Maximum length of any text attribute value in a node.")
-parser.add_argument("--max_output_len", type = int, default = 16536,
+parser.add_argument("--max_output_len", type = int, default = None,
                     help="Maximum length of the output file.")
 
 
@@ -92,17 +88,101 @@ parser.add_argument("--dropout_p", type = int, default = 0,
 parser.add_argument("--use_attention", type = int, default = True,
                     help="Use attention while selcting most appropriate.")
 
-opt = parser.parse_args()
+modelArgs = parser.parse_args()
 
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, opt.log_level.upper()))
-logging.info(opt)
+logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, modelArgs.log_level.upper()))
+logging.info(modelArgs)
 
-if opt.load_checkpoint is not None:
-    logging.info("loading checkpoint from {}".format(os.path.join(opt.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, opt.load_checkpoint)))
-    checkpoint_path = os.path.join(opt.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, opt.load_checkpoint)
+def updateModelArgsFromData(dataset, modelArgs):
+    """
+    total_attrs_count, value_symbols_count, max_node_count,
+    max_node_fanout, max_node_text_len, max_attrib_value_len,
+    max_output_len.
+    """
+    batch_iterator = torchtext.data.BucketIterator(
+        dataset=dataset, batch_size=modelArgs.batch_size,
+        sort=False, #sort_within_batch=True,
+        #sort_key=lambda x: len(x.src),
+        repeat=False)
+    batch_generator = batch_iterator.__iter__()
+
+
+    nodeTagSet = set()
+    attrNameSet = set()
+    attrValueSymbolSet = set()
+    textSymbolSet = set()
+    maxFanout = 0
+    maxNodeTextLen = 0
+    maxAttrValueLen = 0
+    maxOutputLen = 0
+    for batch in batch_generator:
+        # Process input.
+        inputTreeList = getattr(batch, hier2hier.src_field_name)
+        for inputTree in inputTreeList:
+            for node in inputTree.getroot().iter():
+                nodeTagSet.add(node.tag)
+                for attrName, attrValue in node.attrib.items():
+                    attrNameSet.add(attrName)
+                    for ch in attrValue:
+                        attrValueSymbolSet.add(ch)
+                    attrNameSet.add(attrName)
+                    maxAttrValueLen = max(maxAttrValueLen, len(attrValue))
+                for ch in node.text:
+                    textSymbolSet.add(ch)
+                maxFanout = max(maxFanout, len(node))
+                maxNodeTextLen = max(maxNodeTextLen, len(node.text))
+
+        # Process output.
+        outputTextList = getattr(batch, hier2hier.tgt_field_name)
+        for outputText in outputTextList:
+            maxOutputLen = max(maxOutputLen, len(outputText))
+        
+    if modelArgs.num_samples is None:
+        modelArgs.num_samples = len(dataset)
+    elif modelArgs.num_samples < len(dataset):
+        raise ValueError("num_samples smaller than the actual sample count.")
+
+    if modelArgs.max_node_count is None:
+        modelArgs.max_node_count = len(nodeTagSet)
+    elif modelArgs.max_node_count < len(nodeTagSet):
+        raise ValueError("max_node_count smaller than the actual node count.")
+
+    if modelArgs.total_attrs_count is None:
+        modelArgs.total_attrs_count = len(attrNameSet)
+    elif modelArgs.total_attrs_count < len(attrNameSet):
+        raise ValueError("total_attrs_count smaller than the actual attr count.")
+
+    if modelArgs.value_symbols_count is None:
+        modelArgs.value_symbols_count = len(attrValueSymbolSet)
+    elif modelArgs.value_symbols_count < len(attrValueSymbolSet):
+        raise ValueError("Attribute value symbol count set smaller than the actual symbol count.")
+
+    if modelArgs.max_node_fanout is None:
+        modelArgs.max_node_fanout = maxFanout
+    elif modelArgs.max_node_fanout < maxFanout:
+        raise ValueError("max_fanout set smaller than the actual max fanout.")
+
+    if modelArgs.max_node_text_len is None:
+        modelArgs.max_node_text_len = maxNodeTextLen
+    elif modelArgs.max_node_text_len < maxNodeTextLen:
+        raise ValueError("max_node_text_len set smaller than the actual maximum text length.")
+
+    if modelArgs.max_attrib_value_len is None:
+        modelArgs.max_attrib_value_len = maxAttrValueLen
+    elif modelArgs.max_attrib_value_len < maxAttrValueLen:
+        raise ValueError("max_attrib_value_len smaller than the actual maximum attribute value length.")
+
+    if modelArgs.max_output_len is None:
+        modelArgs.max_output_len = maxOutputLen
+    elif modelArgs.max_output_len < maxOutputLen:
+        raise ValueError("maxOutputLen smaller than the actual maximum output length.")
+
+if modelArgs.load_checkpoint is not None:
+    logging.info("loading checkpoint from {}".format(os.path.join(modelArgs.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, modelArgs.load_checkpoint)))
+    checkpoint_path = os.path.join(modelArgs.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, modelArgs.load_checkpoint)
     checkpoint = Checkpoint.load(checkpoint_path)
-    hier2hier = checkpoint.model
+    h2hModel = checkpoint.model
     input_vocab = checkpoint.input_vocab
     output_vocab = checkpoint.output_vocab
 else:
@@ -114,17 +194,19 @@ else:
         return True
 
     train = Hier2HierDataset(
-        baseFolder=opt.train_path,
+        baseFolder=modelArgs.train_path,
         fields = [('src', src), ('tgt', tgt)],
         # transform=transformXml,
         # filter_pred=filterData
     )
+
     dev = Hier2HierDataset(
-        baseFolder=opt.dev_path,
+        baseFolder=modelArgs.dev_path,
         fields = [('src', src), ('tgt', tgt)],
         # transform=transformXml,
         # filter_pred=filterData
     )
+
 
     src.build_vocabs(train, max_size=50000)
     tgt.build_vocab(train, max_size=50000)
@@ -142,12 +224,13 @@ else:
     if torch.cuda.is_available():
         loss.cuda()
 
-    hier2hier = None
+    h2hModel = None
     optimizer = None
-    if not opt.resume:
+    if not modelArgs.resume:
         # Initialize model
-        hier2hier = Hier2hier(
-            opt,
+        updateModelArgsFromData(train, modelArgs)
+        h2hModel = Hier2hier(
+            modelArgs,
             src.vocabs.tags,
             src.vocabs.text,
             src.vocabs.attribs,
@@ -158,30 +241,30 @@ else:
             )
 
         if torch.cuda.is_available():
-            hier2hier.cuda()
+            h2hModel.cuda()
 
-        for param in hier2hier.parameters():
+        for param in h2hModel.parameters():
             param.data.uniform_(-0.08, 0.08)
 
         # Optimizer and learning rate scheduler can be customized by
         # explicitly constructing the objects and pass to the trainer.
         #
-        # optimizer = Optimizer(torch.optim.Adam(hier2hier.parameters()), max_grad_norm=5)
+        # optimizer = Optimizer(torch.optim.Adam(h2hModel.parameters()), max_grad_norm=5)
         # scheduler = StepLR(optimizer.optimizer, 1)
         # optimizer.set_scheduler(scheduler)
 
     # train
     t = SupervisedTrainer(loss=loss, batch_size=32,
                           checkpoint_every=50,
-                          print_every=10, expt_dir=opt.expt_dir)
+                          print_every=10, expt_dir=modelArgs.expt_dir)
 
-    hier2hier = t.train(hier2hier, train,
+    h2hModel = t.train(h2hModel, train,
                       num_epochs=6, dev_data=dev,
                       optimizer=optimizer,
                       teacher_forcing_ratio=0.5,
-                      resume=opt.resume)
+                      resume=modelArgs.resume)
 
-predictor = Predictor(hier2hier, src.vocabs, tgt.vocab)
+predictor = Predictor(h2hModel, src.vocabs, tgt.vocab)
 
 while True:
     seq_str = input("Type in a source sequence:")

@@ -1,9 +1,6 @@
 from __future__ import unicode_literals, print_function, division
-from io import open
 import unicodedata
-import string
-import re
-import random
+import string, re, random, sys
 from orderedattrdict import AttrDict
 
 import torch
@@ -80,6 +77,7 @@ class OutputDecoder(BaseRNN):
 
         # Recurrent loop.
         outputs = []
+        import pdb;pdb.set_trace()
         for sampleIndex in range(sampleCount):
             # Initialize cur attention by paying attention to the root node.
             # For each sample, the first node is root and hence it is the parent of itself.

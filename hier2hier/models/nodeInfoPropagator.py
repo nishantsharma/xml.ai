@@ -32,6 +32,7 @@ class NodeInfoPropagator(nn.Module):
         self.gruCell = torch.nn.GRUCell(propagated_info_len, propagated_info_len)
 
     def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+        import pdb;pdb.set_trace()
         nodeInfoPropagated = self.resizeInput(nodeInfosTensor)
         
         for i in range(self.node_info_propagator_stack_depth):

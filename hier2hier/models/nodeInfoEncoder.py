@@ -118,14 +118,14 @@ class NodeInfoEncoder(nn.Module):
             max_node_count,
             max_node_text_len,
             node_text_vec_len,
-            max_attrib_value_length,
+            max_attrib_value_len,
             attrib_value_vec_len):
         super().__init__()
 
         # Build component encoders.
         self.tagsEncoder = TagEncoder(tagsVocab, max_node_count)
         self.nodeTextEncoder = NodeTextEncoder(textVocab, max_node_count, max_node_text_len, node_text_vec_len)
-        self.attribValueEncoder = EncoderRNN(len(attribValueVocab), max_attrib_value_length, len(attribValueVocab), attrib_value_vec_len)
+        self.attribValueEncoder = EncoderRNN(len(attribValueVocab), max_attrib_value_len, len(attribValueVocab), attrib_value_vec_len)
         self.attribsEncoder = AttribsEncoder(attribsVocab, self.attribValueEncoder, max_node_count)
 
     @property
