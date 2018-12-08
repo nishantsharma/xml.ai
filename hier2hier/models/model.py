@@ -42,6 +42,7 @@ class Hier2hier(nn.Module):
         self.nodeInfoPropagator = NodeInfoPropagator(
             self.nodeInfoEncoder.output_vec_len,
             modelArgs.propagated_info_len,
+            modelArgs.max_node_count,
             modelArgs.node_info_propagator_stack_depth)
 
         self.outputDecoder = OutputDecoder(
@@ -58,12 +59,7 @@ class Hier2hier(nn.Module):
             modelArgs.use_attention,
             )
 
-    def forward(self, xmlTreeList, targetOutput=None, teacher_forcing_ratio=0):
-        nodeAdjacencySpecTensor = torch.zeros((
-            len(xmlTreeList),
-            self.modelArgs.max_node_count,
-            self.modelArgs.max_node_fanout+1))
-
+    def forward(self, xmlTreeList, targetOutput=None, target_lengths=None, teacher_forcing_ratio=0):
         node2Index = {}
         node2Parent = {}
         treeIndex2NodeIndex2NbrIndices = {}
@@ -98,6 +94,6 @@ class Hier2hier(nn.Module):
 
         nodeInfoTensor = self.nodeInfoEncoder(node2Index, node2Parent, xmlTreeList)
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
-        treeOutputDecoded = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput)
+        treeOutputDecoded = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput, target_lengths)
 
         return treeOutputDecoded

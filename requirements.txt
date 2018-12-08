@@ -6,3 +6,4 @@ torchtext
 msgpack
 xmlschema
 orderedattrdict
+sortedcontainers

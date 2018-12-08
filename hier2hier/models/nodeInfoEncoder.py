@@ -5,6 +5,7 @@ import string
 import re
 import random
 from orderedattrdict import AttrDict
+from sortedcontainers import SortedDict, SortedSet
 
 import torch
 import torch.nn as nn
@@ -12,9 +13,7 @@ from torch import optim
 import torch.nn.functional as F
 
 from .encoderRNN import EncoderRNN
-
-def onehotencode(n, i):
-    return [1 if j==i else 0 for j in range(n)]
+from .utils import onehotencode
 
 class TagEncoder(nn.Module):
     def __init__(self, tagsVocab, max_node_count):
@@ -22,16 +21,16 @@ class TagEncoder(nn.Module):
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
 
-    def __onehotencode(self, i):
-        return [1 if j==i else 0 for j in range(len(self.tagsVocab))]
-
     def forward(self, node2Index, node2Parent, xmlTreeList):
-        retval = torch.zeros((len(xmlTreeList), self.max_node_count, len(self.tagsVocab)))
+        allTreeCodes = []
         for index, xmlTree in enumerate(xmlTreeList):
-            for node in xmlTree.iter():
-                retval[index, node2Index[node]] = torch.Tensor(onehotencode(len(self.tagsVocab), self.tagsVocab.stoi[node.tag]))
+            treeCode = []
+            for index, node in enumerate(xmlTree.iter()):
+                treeCode.append(onehotencode(len(self.tagsVocab), self.tagsVocab.stoi[node.tag]))
+                assert(index == node2Index[node])
+            allTreeCodes.append(treeCode)
 
-        return retval
+        return torch.Tensor(allTreeCodes)
 
     @property
     def output_vec_len(self):
@@ -58,26 +57,40 @@ class NodeTextEncoder(EncoderRNN):
                 allText.append((treeIndex, nodeIndex, node.text))
 
         # Sort all text according to length, largest first.
-        allText.sort(key=lambda x: - len(x[2]))
+        allTextLengthSorted = sorted(allText, key=lambda x: - len(x[2]))
 
         # Create inputs appropriate for use by EncoderRNN.
-        maxTextLen = len(allText[0][2])
-        textTensor = torch.zeros([len(allText), maxTextLen], dtype=torch.long)
-        textLengthsTensor = torch.zeros(len(allText), dtype=torch.int32)
-        for textIndex, (_, _, text) in enumerate(allText):
-            for chIndex, ch in enumerate(text):
-                textTensor[textIndex, chIndex] = self.textVocab.stoi[ch]
-            textLengthsTensor[textIndex] = len(text)
+        maxTextLen = len(allTextLengthSorted[0][2])
+        textList = []
+        textLengthsList = []
+        for textIndex, (_, _, text) in enumerate(allTextLengthSorted):
+            curTextList = [self.textVocab.stoi[ch] for ch in text]
+            textLengthsList.append(len(curTextList))
+            curTextList += [self.textVocab.stoi["<pad>"]] * (maxTextLen - len(text))
+            textList.append(curTextList)
+        textTensor = torch.tensor(textList, dtype=torch.long)
+        textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long)
 
         # Encode.
         _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
 
-        # Populate retval
-        retval = torch.zeros((len(xmlTreeList), self.max_node_count, self.node_text_vec_len))
-        for encodedIndex, (treeIndex, nodeIndex, _) in enumerate(allText):
-            retval[treeIndex, nodeIndex] = encodedTextVec[0][encodedIndex]
+        # Populate treeIndex2NodeIndex2EncodedIndices
+        treeIndex2NodeIndex2EncodedIndices = SortedDict()
+        for encodedIndex, (treeIndex, nodeIndex, _) in enumerate(allTextLengthSorted):
+            nodeIndex2EncodedIndices = treeIndex2NodeIndex2EncodedIndices.setdefault(treeIndex, SortedDict())
+            nodeIndex2EncodedIndices[nodeIndex] = encodedIndex
 
-        return retval
+        allTextEncoded = []
+        for treeIndex, nodeIndex2EncodedIndices in treeIndex2NodeIndex2EncodedIndices.items():
+            treeTextEncoded = [
+                encodedTextVec[:, encodedIndexSet, :]
+                for nodeIndex, encodedIndexSet in nodeIndex2EncodedIndices.items()
+            ]
+            treeTextEncoded = torch.cat(treeTextEncoded).view(1, self.max_node_count, self.node_text_vec_len)
+            allTextEncoded.append(treeTextEncoded)
+        allTextEncoded = torch.cat(allTextEncoded)
+
+        return allTextEncoded
 
 class AttribsEncoder(nn.Module):
     def __init__(self, attribsVocab, attribValueEncoder, max_node_count):
@@ -94,14 +107,23 @@ class AttribsEncoder(nn.Module):
         sampleCount = len(xmlTreeList)
         attrCount = len(self.attribsVocab)
         attrVecLen = self.attribValueEncoder.hidden_size
-        retval = torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen])
-        for sampleIndex, xmlTree in enumerate(xmlTreeList):
+        retval = []
+        #torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen])
+        zeroAttrib = torch.Tensor(1, attrVecLen)
+        for treeIndex, xmlTree in enumerate(xmlTreeList):
+            encodedTree = []
             for node in xmlTree.iter():
+                encodedNode = [zeroAttrib for _ in range(attrCount)]
                 for attribName, atttribValue in node.attrib.items():
                     attrbVec = self.attribValueEncoder(attribValue)
                     attribIndex = self.attribsVocab.stoi[attribName]
-                    retval[sampleIndex, node2Index[node], attribIndex] = attribVec
-        
+                    encodedNode[attribIndex] = attribVec
+                encodedNode = torch.cat(encodedNode).view(1, attrCount, attrVecLen)
+                encodedTree.append(encodedNode)
+            encodedTree = torch.cat(encodedTree).view(1, self.max_node_count, attrCount, attrVecLen)
+            retval.append(encodedTree)
+
+        retval = torch.cat(retval).view(sampleCount, self.max_node_count, attrCount, attrVecLen)
         return retval
 
 class NodeInfoEncoder(nn.Module):
@@ -145,4 +167,5 @@ class NodeInfoEncoder(nn.Module):
         newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[2],)
         encodedAttributesReshaped = encodedAttributes.reshape(newAttrShape)
 
-        return torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
+        retval = torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
+        return retval

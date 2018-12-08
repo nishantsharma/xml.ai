@@ -48,16 +48,15 @@ class SupervisedTrainer(object):
 
         self.logger = logging.getLogger(__name__)
 
-    def _train_batch(self, input_variable, target_variable, model, teacher_forcing_ratio):
+    def _train_batch(self, input_variable, target_variable, target_lengths, model, teacher_forcing_ratio):
         loss = self.loss
         # Forward propagation
-        decoder_outputs, decoder_hidden, other = model(input_variable, target_variable,
+        decoder_outputs, _ = model(input_variable, target_variable, target_lengths,
                                                        teacher_forcing_ratio=teacher_forcing_ratio)
         # Get loss
         loss.reset()
-        for step, step_output in enumerate(decoder_outputs):
-            batch_size = target_variable.size(0)
-            loss.eval_batch(step_output.contiguous().view(batch_size, -1), target_variable[:, step + 1])
+        for i, step_output in enumerate(decoder_outputs):
+            loss.eval_batch(step_output, target_variable[i])
         # Backward propagation
         model.zero_grad()
         loss.backward()
@@ -98,9 +97,9 @@ class SupervisedTrainer(object):
                 step_elapsed += 1
 
                 input_variables = getattr(batch, hier2hier.src_field_name)
-                target_variables = getattr(batch, hier2hier.tgt_field_name)
+                target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
 
-                loss = self._train_batch(input_variables, target_variables, model, teacher_forcing_ratio)
+                loss = self._train_batch(input_variables, target_variables, target_lengths, model, teacher_forcing_ratio)
 
                 # Record average loss
                 print_loss_total += loss

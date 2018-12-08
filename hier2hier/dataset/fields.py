@@ -67,40 +67,26 @@ class TargetField(torchtext.data.Field):
         if kwargs.get('sequential') is False:
             logger.warning("Target field in pytorch-hier2hier mut be set to True.  Changed.")
         kwargs["sequential"] = True
-        
+
         if kwargs.get('batch_first') == False:
             logger.warning("Option batch_first has to be set to use pytorch-hier2hier.  Changed to True.")
         kwargs['batch_first'] = True
+
         if kwargs.get('preprocessing') is None:
             kwargs['preprocessing'] = lambda seq: [self.SYM_SOS] + seq + [self.SYM_EOS]
         else:
             func = kwargs['preprocessing']
             kwargs['preprocessing'] = lambda seq: [self.SYM_SOS] + func(seq) + [self.SYM_EOS]
 
-        self.init_token = SYM_SOS
-        self.eos_token = SYM_EOS
+        if kwargs.get('include_lengths') is False:
+             logger.warning("Option include_lengths has to be set to use pytorch-seq2seq.  Changed to True.")
+        kwargs['include_lengths'] = True
+
+        kwargs["init_token"] = SYM_SOS
+        kwargs["eos_token"] = SYM_EOS
         super(TargetField, self).__init__(**kwargs)
 
     def build_vocab(self, *args, **kwargs):
         super(TargetField, self).build_vocab(*args, **kwargs)
         self.sos_id = self.vocab.stoi[SYM_SOS]
         self.eos_id = self.vocab.stoi[SYM_EOS]
-
-    def build_vocabs(self, hier_dataset, max_size=None):
-        import pdb;pdb.set_trace()
-        # Collect all symbols.
-        outputChars = Counter()
-        for index in range(len(hier_dataset.filePairs)):
-            outFile = hier_dataset.filePairs[index][1]
-            with open(outFile, "r") as fp:
-                outText = fp.read()
-                for ch in outText:
-                    outputChars[ch] += 1
-
-        # Build all vocabs.
-        outputCharsVocab = Vocab(outputChars, max_size) 
-
-        # Build retval.
-        self.vocabs = [outputCharsVocab]
-
-        return retval
