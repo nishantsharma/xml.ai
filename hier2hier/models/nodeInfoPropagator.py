@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-from .utils import invertPermutation
+from .utils import invertPermutation, checkNans
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -107,7 +107,9 @@ class NodeInfoPropagator(nn.Module):
         ) = self.computeNeighborSelectors(flatReOrderedIndexMap)
 
         sampleCount = len(nodeInfosTensor)
+        checkNans(nodeInfosTensor)
         nodeInfoPropagated = self.resizeInput(nodeInfosTensor)
+        checkNans(nodeInfoPropagated)
 
         # Get a flattened view of nodeInfoToPropagate. Flat view is easier to permute.
         nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount*self.max_node_count, self.propagated_info_len)
@@ -117,7 +119,9 @@ class NodeInfoPropagator(nn.Module):
 
         for i in range(self.node_info_propagator_stack_depth):
             # Prepare parent info for propagation into new nodeInfoPropagated.
+            checkNans(nodeInfoPropagatedFlat)
             parentInfosToPropagateReOrdered = nodeInfoPropagatedFlat[selectorForParentInfos, ...]
+            checkNans(parentInfosToPropagateReOrdered)
 
             # Compute children info to propagate to each node.
             childrenInfoToPropagateReOrdered = None
@@ -142,6 +146,7 @@ class NodeInfoPropagator(nn.Module):
                 childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, deficit)(childrenInfoToPropagateReOrdered)
 
             # Apply distincy linear operations on parent and children node infos before propagate.
+            checkNans(parentInfosToPropagateReOrdered)
             parentInfosToPropagateReOrdered = self.parentOp(parentInfosToPropagateReOrdered)
             if childrenInfoToPropagateReOrdered is not None:
                 childrenInfoToPropagateReOrdered = self.neighborOp(childrenInfoToPropagateReOrdered)
@@ -151,13 +156,16 @@ class NodeInfoPropagator(nn.Module):
             if childrenInfoToPropagateReOrdered is not None:
                 neighborsNodeInfoSummary = neighborsNodeInfoSummary + childrenInfoToPropagateReOrdered
 
+            checkNans(nodeInfoPropagatedReOrdered)
             # Propagate the new neighbor information using GRU cell to obtain updated node info.
             nodeInfoPropagatedReOrdered = self.gruCell(nodeInfoPropagatedReOrdered, neighborsNodeInfoSummary)
+            checkNans(nodeInfoPropagatedReOrdered)
 
         # Invert re-ordering to obtain the flat newly propagated node info tensor.
         nodeInfoPropagated = nodeInfoPropagatedReOrdered[flatIndicesByDecreasingFanoutInverse, ...]
 
         # Undo flat.
         nodeInfoPropagated = nodeInfoPropagated.view(sampleCount, self.max_node_count, self.propagated_info_len)
+        checkNans(nodeInfoPropagated)
         return nodeInfoPropagated
 

@@ -41,12 +41,18 @@ parser.add_argument('--log-level', dest='log_level',
                     help='Logging level.')
 
 # Build training args needed during training and also inference.
-parser.add_argument("--batch_size", type = int, default = 64,
+parser.add_argument("--batch_size", type = int, default = 100,
                     help="Batch size for training.")
-parser.add_argument("--epochs", type = int, default = 100,
+parser.add_argument("--epochs", type = int, default = 4000,
                     help="Number of epochs to train for.")
 parser.add_argument("--num_samples", type = int, default = None,
                     help="Number of samples to train on.")
+parser.add_argument("--checkpoint_every", type = int, default = 50,
+                    help="Number of epochs after which we take a checkpoint.")
+parser.add_argument("--teacher_forcing_ratio", type = int, default = 0.50,
+                    help="Teacher forcing ratio to using during decoder training.")
+parser.add_argument("--print_every", type = int, default = 10,
+                    help="Print progress information, after every so many batches.")
 
 # Schema params.
 parser.add_argument("--max_node_count", type = int, default = None,
@@ -82,9 +88,9 @@ parser.add_argument("--output_decoder_state_width", type = int, default = 128,
 
 # Other meta-parameters of the generated neural network.
 parser.add_argument("--input_dropout_p", type = int, default = 0,
-                    help="Width of GRU cell in output decoder.")
+                    help="Input dropout probability.")
 parser.add_argument("--dropout_p", type = int, default = 0,
-                    help="Probability of .")
+                    help="Dropout probability.")
 parser.add_argument("--use_attention", type = int, default = True,
                     help="Use attention while selcting most appropriate.")
 
@@ -254,14 +260,17 @@ else:
         # optimizer.set_scheduler(scheduler)
 
     # train
-    t = SupervisedTrainer(loss=loss, batch_size=32,
-                          checkpoint_every=50,
-                          print_every=10, expt_dir=modelArgs.expt_dir)
+    t = SupervisedTrainer(loss=loss,
+                        batch_size=modelArgs.batch_size,
+                        checkpoint_every=modelArgs.checkpoint_every,
+                        print_every=modelArgs.print_every,
+                        expt_dir=modelArgs.expt_dir)
 
     h2hModel = t.train(h2hModel, train,
-                      num_epochs=6, dev_data=dev,
+                      num_epochs=modelArgs.epochs,
+                      dev_data=dev,
                       optimizer=optimizer,
-                      teacher_forcing_ratio=0.5,
+                      teacher_forcing_ratio=modelArgs.teacher_forcing_ratio,
                       resume=modelArgs.resume)
 
 predictor = Predictor(h2hModel, src.vocabs, tgt.vocab)

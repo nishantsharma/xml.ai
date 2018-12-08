@@ -33,13 +33,13 @@ class Checkpoint(object):
     CHECKPOINT_DIR_NAME = 'checkpoints'
     TRAINER_STATE_NAME = 'trainer_states.pt'
     MODEL_NAME = 'model.pt'
-    INPUT_VOCAB_FILE = 'input_vocab.pt'
+    INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
     OUTPUT_VOCAB_FILE = 'output_vocab.pt'
 
-    def __init__(self, model, optimizer, epoch, step, input_vocab, output_vocab, path=None):
+    def __init__(self, model, optimizer, epoch, step, input_vocabs, output_vocab, path=None):
         self.model = model
         self.optimizer = optimizer
-        self.input_vocab = input_vocab
+        self.input_vocabs = input_vocabs
         self.output_vocab = output_vocab
         self.epoch = epoch
         self.step = step
@@ -75,8 +75,9 @@ class Checkpoint(object):
                    os.path.join(path, self.TRAINER_STATE_NAME))
         torch.save(self.model, os.path.join(path, self.MODEL_NAME))
 
-        with open(os.path.join(path, self.INPUT_VOCAB_FILE), 'wb') as fout:
-            dill.dump(self.input_vocab, fout)
+        for input_vocab_key, input_vocab in self.input_vocabs.items():
+            with open(os.path.join(path, self.INPUT_VOCABS_FILE.format(input_vocab_key)), 'wb') as fout:
+                dill.dump(input_vocab, fout)
         with open(os.path.join(path, self.OUTPUT_VOCAB_FILE), 'wb') as fout:
             dill.dump(self.output_vocab, fout)
 
@@ -99,12 +100,12 @@ class Checkpoint(object):
             model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=lambda storage, loc: storage)
 
         model.flatten_parameters() # make RNN parameters contiguous
-        with open(os.path.join(path, cls.INPUT_VOCAB_FILE), 'rb') as fin:
-            input_vocab = dill.load(fin)
+        with open(os.path.join(path, cls.INPUT_VOCABS_FILE), 'rb') as fin:
+            input_vocabs = dill.load(fin)
         with open(os.path.join(path, cls.OUTPUT_VOCAB_FILE), 'rb') as fin:
             output_vocab = dill.load(fin)
         optimizer = resume_checkpoint['optimizer']
-        return Checkpoint(model=model, input_vocab=input_vocab,
+        return Checkpoint(model=model, input_vocabs=input_vocabs,
                           output_vocab=output_vocab,
                           optimizer=optimizer,
                           epoch=resume_checkpoint['epoch'],

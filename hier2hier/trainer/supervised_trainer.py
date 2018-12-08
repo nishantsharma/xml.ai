@@ -107,19 +107,22 @@ class SupervisedTrainer(object):
 
                 if step % self.print_every == 0 and step_elapsed > self.print_every:
                     print_loss_avg = print_loss_total / self.print_every
-                    print_loss_total = 0
-                    log_msg = 'Progress: %d%%, Train %s: %.4f' % (
+                    log_msg = 'Progress: %d%%, Train %s: %.4f/%d=%.4f' % (
                         step / total_steps * 100,
                         self.loss.name,
+                        print_loss_total,
+                        self.print_every,
                         print_loss_avg)
                     log.info(log_msg)
+
+                    print_loss_total = 0
 
                 # Checkpoint
                 if step % self.checkpoint_every == 0 or step == total_steps:
                     Checkpoint(model=model,
                                optimizer=self.optimizer,
                                epoch=epoch, step=step,
-                               input_vocab=data.fields[hier2hier.src_field_name].vocab,
+                               input_vocabs=data.fields[hier2hier.src_field_name].vocabs,
                                output_vocab=data.fields[hier2hier.tgt_field_name].vocab).save(self.expt_dir)
 
             if step_elapsed == 0: continue
@@ -128,7 +131,7 @@ class SupervisedTrainer(object):
             epoch_loss_total = 0
             log_msg = "Finished epoch %d: Train %s: %.4f" % (epoch, self.loss.name, epoch_loss_avg)
             if dev_data is not None:
-                dev_loss, accuracy = self.evaluator.evaluate(model, dev_data)
+                dev_loss, accuracy = self.evaluator.evaluate(model, dev_data), float('nan')
                 self.optimizer.update(dev_loss, epoch)
                 log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
                 model.train(mode=True)

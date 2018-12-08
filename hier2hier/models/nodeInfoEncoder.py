@@ -13,7 +13,7 @@ from torch import optim
 import torch.nn.functional as F
 
 from .encoderRNN import EncoderRNN
-from .utils import onehotencode
+from .utils import onehotencode, checkNans
 
 class TagEncoder(nn.Module):
     def __init__(self, tagsVocab, max_node_count):
@@ -109,7 +109,7 @@ class AttribsEncoder(nn.Module):
         attrVecLen = self.attribValueEncoder.hidden_size
         retval = []
         #torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen])
-        zeroAttrib = torch.Tensor(1, attrVecLen)
+        zeroAttrib = torch.zeros(1, attrVecLen)
         for treeIndex, xmlTree in enumerate(xmlTreeList):
             encodedTree = []
             for node in xmlTree.iter():
@@ -118,10 +118,13 @@ class AttribsEncoder(nn.Module):
                     attrbVec = self.attribValueEncoder(attribValue)
                     attribIndex = self.attribsVocab.stoi[attribName]
                     encodedNode[attribIndex] = attribVec
+                    checkNans(attribVec)
                 encodedNode = torch.cat(encodedNode).view(1, attrCount, attrVecLen)
                 encodedTree.append(encodedNode)
+                checkNans(encodedNode)
             encodedTree = torch.cat(encodedTree).view(1, self.max_node_count, attrCount, attrVecLen)
             retval.append(encodedTree)
+            checkNans(encodedTree)
 
         retval = torch.cat(retval).view(sampleCount, self.max_node_count, attrCount, attrVecLen)
         return retval
@@ -162,10 +165,15 @@ class NodeInfoEncoder(nn.Module):
         encodedTags = self.tagsEncoder(node2Index, node2Parent, xmlTreeList)
         encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList)
         encodedAttributes = self.attribsEncoder(node2Index, node2Parent, xmlTreeList)
+        checkNans(encodedTags)
+        checkNans(encodedText)
+        checkNans(encodedAttributes)
 
         attrShape = encodedAttributes.shape
         newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[2],)
         encodedAttributesReshaped = encodedAttributes.reshape(newAttrShape)
+        checkNans(encodedAttributesReshaped)
 
         retval = torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
+        checkNans(retval)
         return retval
