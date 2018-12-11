@@ -213,8 +213,7 @@ class OutputDecoder(BaseRNN):
         outputSymbolsTransposed = []
         for _ in range(numSamples):
             outputSymbolsTransposed.append([])
-        pad_id = self.pad_id
-        padTensor = torch.Tensor([onehotencode(len(self.output_vocab), self.eos_id)])
+        padTensor = torch.Tensor([onehotencode(len(self.output_vocab), self.pad_id)])
 
         for i, (curSymbolColumn, curSymbolTensorColumn) in enumerate(zip(outputSymbols, outputSymbolTensors)):
             for j, curSymbol in enumerate(curSymbolColumn):

@@ -7,3 +7,5 @@ msgpack
 xmlschema
 orderedattrdict
 sortedcontainers
+tensorboardX
+tensorflow

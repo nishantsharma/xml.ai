@@ -27,7 +27,7 @@ class NodeInfoPropagator(nn.Module):
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
 
         # Upgrade size of input.
-        self.resizeInput = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
+        self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
         self.parentOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
         self.neighborOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
 
@@ -46,7 +46,7 @@ class NodeInfoPropagator(nn.Module):
 
         # Compute the permutation to use.
         flatIndicesByDecreasingFanout = [ flatIndex for (flatIndex, _) in flatIndicesWithFanout ]
-        decreasingFanouts = [ fanout for (_, fanout) in flatIndicesWithFanout ]
+        decreasingFanouts = torch.tensor([ fanout for (_, fanout) in flatIndicesWithFanout])
         return flatIndicesByDecreasingFanout, decreasingFanouts
 
     def computeFlatReOrderedIndexMap(self,
@@ -108,7 +108,7 @@ class NodeInfoPropagator(nn.Module):
 
         sampleCount = len(nodeInfosTensor)
         checkNans(nodeInfosTensor)
-        nodeInfoPropagated = self.resizeInput(nodeInfosTensor)
+        nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
         checkNans(nodeInfoPropagated)
 
         # Get a flattened view of nodeInfoToPropagate. Flat view is easier to permute.
@@ -124,10 +124,11 @@ class NodeInfoPropagator(nn.Module):
             checkNans(parentInfosToPropagateReOrdered)
 
             # Compute children info to propagate to each node.
-            childrenInfoToPropagateReOrdered = None
+            childrenInfoToPropagateReOrdered = torch.tensor([])
             for selectorForChildrenInfo in selectorForChildrenInfoList:
                 curChildrenInfoReOrdered = nodeInfoPropagatedReOrdered[selectorForChildrenInfo, ...]
-                if childrenInfoToPropagateReOrdered is None:
+                if not childrenInfoToPropagateReOrdered.shape[0]:
+                    # First iteration of the loop.
                     childrenInfoToPropagateReOrdered = curChildrenInfoReOrdered
                 else:
                     assert(curChildrenInfoReOrdered.shape[0] >= childrenInfoToPropagateReOrdered.shape[0])
@@ -137,27 +138,28 @@ class NodeInfoPropagator(nn.Module):
                         childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, deficit)(childrenInfoToPropagateReOrdered)
                     childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered + curChildrenInfoReOrdered
 
-            # Row-wise normalization of childrenInfoToPropagate by fanout.
-            if childrenInfoToPropagateReOrdered is not None:
+            if childrenInfoToPropagateReOrdered.shape[0]:
+                # Row-wise normalization of childrenInfoToPropagate by fanout.
+                # Don't do it in-place.
                 childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered / decreasingFanouts
 
                 # There may still be some row deficit remaining because some nodes do not have children.
-                deficit = nodeInfoPropagatedFlat.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
-                childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, deficit)(childrenInfoToPropagateReOrdered)
+                finalDeficit = nodeInfoPropagatedFlat.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
+                childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, finalDeficit)(childrenInfoToPropagateReOrdered)
+            else:
+                # The case where no node has a child an all are in deficit.
+                childrenInfoToPropagateReOrdered = torch.zeros(nodeInfoPropagatedFlat.shape)
 
-            # Apply distincy linear operations on parent and children node infos before propagate.
+            # Apply distinct linear operations on parent and children node infos before propagate.
             checkNans(parentInfosToPropagateReOrdered)
             parentInfosToPropagateReOrdered = self.parentOp(parentInfosToPropagateReOrdered)
-            if childrenInfoToPropagateReOrdered is not None:
-                childrenInfoToPropagateReOrdered = self.neighborOp(childrenInfoToPropagateReOrdered)
+            childrenInfoToPropagateReOrdered = self.neighborOp(childrenInfoToPropagateReOrdered)
 
             # Compute final neighbor information summary.
-            neighborsNodeInfoSummary = parentInfosToPropagateReOrdered
-            if childrenInfoToPropagateReOrdered is not None:
-                neighborsNodeInfoSummary = neighborsNodeInfoSummary + childrenInfoToPropagateReOrdered
+            neighborsNodeInfoSummary = parentInfosToPropagateReOrdered + childrenInfoToPropagateReOrdered
 
-            checkNans(nodeInfoPropagatedReOrdered)
             # Propagate the new neighbor information using GRU cell to obtain updated node info.
+            checkNans(nodeInfoPropagatedReOrdered)
             nodeInfoPropagatedReOrdered = self.gruCell(nodeInfoPropagatedReOrdered, neighborsNodeInfoSummary)
             checkNans(nodeInfoPropagatedReOrdered)
 

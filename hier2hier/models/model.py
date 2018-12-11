@@ -59,7 +59,12 @@ class Hier2hier(nn.Module):
             modelArgs.use_attention,
             )
 
-    def forward(self, xmlTreeList, targetOutput=None, target_lengths=None, teacher_forcing_ratio=0):
+    def forward(self,
+            xmlTreeList,
+            targetOutput=None,
+            target_lengths=None,
+            teacher_forcing_ratio=0,
+            tensorboard_hook=None):
         node2Index = {}
         node2Parent = {}
         treeIndex2NodeIndex2NbrIndices = {}
@@ -94,6 +99,11 @@ class Hier2hier(nn.Module):
 
         nodeInfoTensor = self.nodeInfoEncoder(node2Index, node2Parent, xmlTreeList)
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
-        treeOutputDecoded = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput, target_lengths)
+        outputSymbolTensors, outputSymbols = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput, target_lengths)
 
-        return treeOutputDecoded
+        if tensorboard_hook is not None:
+            tensorboard_hook.add_histogram('nodeInfoTensor', nodeInfoTensor) 
+            tensorboard_hook.add_histogram('nodeInfoPropagatedTensor', nodeInfoPropagatedTensor) 
+            tensorboard_hook.add_histogram('outputSymbolTensors', outputSymbolTensors) 
+
+        return outputSymbolTensors, outputSymbols

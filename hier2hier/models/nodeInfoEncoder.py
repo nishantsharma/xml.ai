@@ -64,28 +64,41 @@ class NodeTextEncoder(EncoderRNN):
         textList = []
         textLengthsList = []
         for textIndex, (_, _, text) in enumerate(allTextLengthSorted):
-            curTextList = [self.textVocab.stoi[ch] for ch in text]
-            textLengthsList.append(len(curTextList))
-            curTextList += [self.textVocab.stoi["<pad>"]] * (maxTextLen - len(text))
-            textList.append(curTextList)
+            # Expand current text as a list.
+            curTextAsList = [self.textVocab.stoi[ch] for ch in text]
+
+            # Record length of the current text.
+            textLengthsList.append(len(curTextAsList))
+
+            # Pad curTextAsList and add to textList.
+            curTextAsListPadded = curTextAsList + [self.textVocab.stoi["<pad>"]] * (maxTextLen - len(text))
+            textList.append(curTextAsListPadded)
         textTensor = torch.tensor(textList, dtype=torch.long)
         textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long)
 
         # Encode.
         _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
 
-        # Populate treeIndex2NodeIndex2EncodedIndices
-        treeIndex2NodeIndex2EncodedIndices = SortedDict()
+        # Populate treeIndex2NodeIndex2EncodedIndex
+        treeIndex2NodeIndex2EncodedIndex = SortedDict()
         for encodedIndex, (treeIndex, nodeIndex, _) in enumerate(allTextLengthSorted):
-            nodeIndex2EncodedIndices = treeIndex2NodeIndex2EncodedIndices.setdefault(treeIndex, SortedDict())
-            nodeIndex2EncodedIndices[nodeIndex] = encodedIndex
+            nodeIndex2EncodedIndex = treeIndex2NodeIndex2EncodedIndex.setdefault(
+                treeIndex,
+                SortedDict())
+            nodeIndex2EncodedIndex[nodeIndex] = encodedIndex
 
+        # Get back node text indices in original order.
         allTextEncoded = []
-        for treeIndex, nodeIndex2EncodedIndices in treeIndex2NodeIndex2EncodedIndices.items():
+        zeroPaddingNodeVec = torch.zeros([self.node_text_vec_len])
+        for treeIndex, nodeIndex2EncodedIndex in treeIndex2NodeIndex2EncodedIndex.items():
             treeTextEncoded = [
-                encodedTextVec[:, encodedIndexSet, :]
-                for nodeIndex, encodedIndexSet in nodeIndex2EncodedIndices.items()
+                encodedTextVec[:, encodedIndex, :]
+                for nodeIndex, encodedIndex in nodeIndex2EncodedIndex.items()
             ]
+
+            # Some of the trees may need padding so tht all trees have self.max_node_count
+            # number of node vectors.
+            treeTextEncoded += [zeroPaddingNodeVec] * (self.max_node_count - len(treeTextEncoded))
             treeTextEncoded = torch.cat(treeTextEncoded).view(1, self.max_node_count, self.node_text_vec_len)
             allTextEncoded.append(treeTextEncoded)
         allTextEncoded = torch.cat(allTextEncoded)
@@ -115,18 +128,17 @@ class AttribsEncoder(nn.Module):
             for node in xmlTree.iter():
                 encodedNode = [zeroAttrib for _ in range(attrCount)]
                 for attribName, atttribValue in node.attrib.items():
-                    attrbVec = self.attribValueEncoder(attribValue)
+                    attribVec = self.attribValueEncoder(attribValue)
                     attribIndex = self.attribsVocab.stoi[attribName]
                     encodedNode[attribIndex] = attribVec
                     checkNans(attribVec)
                 encodedNode = torch.cat(encodedNode).view(1, attrCount, attrVecLen)
                 encodedTree.append(encodedNode)
-                checkNans(encodedNode)
             encodedTree = torch.cat(encodedTree).view(1, self.max_node_count, attrCount, attrVecLen)
             retval.append(encodedTree)
             checkNans(encodedTree)
 
-        retval = torch.cat(retval).view(sampleCount, self.max_node_count, attrCount, attrVecLen)
+        retval = torch.cat(retval)
         return retval
 
 class NodeInfoEncoder(nn.Module):
@@ -170,9 +182,8 @@ class NodeInfoEncoder(nn.Module):
         checkNans(encodedAttributes)
 
         attrShape = encodedAttributes.shape
-        newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[2],)
-        encodedAttributesReshaped = encodedAttributes.reshape(newAttrShape)
-        checkNans(encodedAttributesReshaped)
+        newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[-2],)
+        encodedAttributesReshaped = encodedAttributes.view(newAttrShape)
 
         retval = torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
         checkNans(retval)

@@ -24,6 +24,18 @@ from hier2hier.util.checkpoint import Checkpoint
 #      # resuming from a specific checkpoint
 #      python examples/sample.py --train_path $TRAIN_PATH --dev_path $DEV_PATH --expt_dir $EXPT_PATH --load_checkpoint $CHECKPOINT_DIR
 
+
+def str2bool(v):
+    """
+    Converts string to bool. This is used as type in argparse arguments to parse
+    command line arguments.
+    """
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 parser = argparse.ArgumentParser()
 parser.add_argument('--train_path', action='store', dest='train_path',
                     help='Path to training data')
@@ -33,12 +45,18 @@ parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='./ex
                     help='Path to experiment directory. If load_checkpoint is True, then path to checkpoint directory has to be provided')
 parser.add_argument('--load_checkpoint', action='store', dest='load_checkpoint',
                     help='The name of the checkpoint to load, usually an encoded time string')
-parser.add_argument('--resume', action='store_true', dest='resume',
-                    default=False,
+parser.add_argument('--resume',
+                    default=False, type=str2bool,
                     help='Indicates if training has to be resumed from the latest checkpoint')
 parser.add_argument('--log-level', dest='log_level',
                     default='info',
                     help='Logging level.')
+parser.add_argument("--save_to_dir",
+                    type=str, default="output/",
+                    help="Target directory where all output is saved.")
+parser.add_argument("--debug",
+                    type=str2bool, default=False,
+                    help="Set to true to enable debug mode.")
 
 # Build training args needed during training and also inference.
 parser.add_argument("--batch_size", type = int, default = 100,
@@ -96,6 +114,7 @@ parser.add_argument("--use_attention", type = int, default = True,
 
 modelArgs = parser.parse_args()
 
+os.makedirs(modelArgs.save_to_dir, exist_ok=True)
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
 logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, modelArgs.log_level.upper()))
 logging.info(modelArgs)

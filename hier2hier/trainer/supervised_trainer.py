@@ -13,6 +13,8 @@ from hier2hier.evaluator import Evaluator
 from hier2hier.loss import NLLLoss
 from hier2hier.optim import Optimizer
 from hier2hier.util.checkpoint import Checkpoint
+from hier2hier.util.tensorboard import TensorBoardHook
+
 
 class SupervisedTrainer(object):
     """ The SupervisedTrainer class helps in setting up a training framework in a
@@ -27,7 +29,8 @@ class SupervisedTrainer(object):
     """
     def __init__(self, expt_dir='experiment', loss=NLLLoss(), batch_size=64,
                  random_seed=None,
-                 checkpoint_every=100, print_every=100):
+                 checkpoint_every=100, print_every=100,
+                 debug=True):
         self._trainer = "Simple Trainer"
         self.random_seed = random_seed
         if random_seed is not None:
@@ -48,11 +51,21 @@ class SupervisedTrainer(object):
 
         self.logger = logging.getLogger(__name__)
 
+        self.debug=debug
+        if debug:
+            self.tensorBoardHook = TensorBoardHook(self.expt_dir)
+        else:
+            self.tensorBoardHook = None
+
     def _train_batch(self, input_variable, target_variable, target_lengths, model, teacher_forcing_ratio):
         loss = self.loss
         # Forward propagation
-        decoder_outputs, _ = model(input_variable, target_variable, target_lengths,
-                                                       teacher_forcing_ratio=teacher_forcing_ratio)
+        decoder_outputs, _ = model(input_variable,
+                                target_variable,
+                                target_lengths,
+                                teacher_forcing_ratio=teacher_forcing_ratio,
+                                tensorboard_hook=self.tensorBoardHook,
+                                )
         # Get loss
         loss.reset()
         for i, step_output in enumerate(decoder_outputs):
@@ -82,8 +95,13 @@ class SupervisedTrainer(object):
         total_steps = steps_per_epoch * n_epochs
 
         step = start_step
+        self.tensorBoardHook.stepReset(
+            step=start_step,
+            epoch=start_epoch,
+            steps_per_epoch=steps_per_epoch)
         step_elapsed = 0
         for epoch in range(start_epoch, n_epochs + 1):
+            self.tensorBoardHook.epochNext()
             log.debug("Epoch: %d, Step: %d" % (epoch, step))
 
             batch_generator = batch_iterator.__iter__()
@@ -93,8 +111,10 @@ class SupervisedTrainer(object):
 
             model.train(True)
             for batch in batch_generator:
+                self.tensorBoardHook.batchNext()
                 step += 1
                 step_elapsed += 1
+                self.tensorBoardHook.batch = step % steps_per_epoch
 
                 input_variables = getattr(batch, hier2hier.src_field_name)
                 target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)

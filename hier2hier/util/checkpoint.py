@@ -1,7 +1,6 @@
 from __future__ import print_function
-import os
-import time
-import shutil
+import os, time, shutil, glob
+from attrdict import AttrDict
 
 import torch
 import dill
@@ -99,9 +98,18 @@ class Checkpoint(object):
             resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=lambda storage, loc: storage)
             model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=lambda storage, loc: storage)
 
-        model.flatten_parameters() # make RNN parameters contiguous
-        with open(os.path.join(path, cls.INPUT_VOCABS_FILE), 'rb') as fin:
-            input_vocabs = dill.load(fin)
+
+        # model.flatten_parameters() # make RNN parameters contiguous
+        input_vocab_files = glob.glob(os.path.join(path, cls.INPUT_VOCABS_FILE).replace("{0}", "*"))
+        input_vocabs = AttrDict()
+        for input_vocab_file in input_vocab_files:
+            vocab_name = os.path.basename(input_vocab_file)
+            start = cls.INPUT_VOCABS_FILE.index("{0}")
+            end = start + len(vocab_name) - len(cls.INPUT_VOCABS_FILE) + 2
+            vocab_name  = vocab_name[start:end]
+            with open(input_vocab_file, 'rb') as fin:
+                input_vocabs[vocab_name] = dill.load(fin)
+
         with open(os.path.join(path, cls.OUTPUT_VOCAB_FILE), 'rb') as fin:
             output_vocab = dill.load(fin)
         optimizer = resume_checkpoint['optimizer']

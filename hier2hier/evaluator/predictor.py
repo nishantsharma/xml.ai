@@ -71,3 +71,6 @@ class Predictor(object):
             result.append(tgt_seq)
 
         return result
+
+if __name__ == "__main__":
+    
