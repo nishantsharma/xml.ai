@@ -27,4 +27,4 @@ class TensorBoardHook(SummaryWriter):
         super().add_scalar(label, value, self._step)
 
     def add_histogram(self, label, value):
-        super().add_histogram(label, value.detach().numpy(), self._step)
+        super().add_histogram(label, value.cpu().detach().numpy(), self._step)

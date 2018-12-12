@@ -203,8 +203,12 @@ def updateModelArgsFromData(dataset, modelArgs):
     elif modelArgs.max_output_len < maxOutputLen:
         raise ValueError("maxOutputLen smaller than the actual maximum output length.")
 
+# Pick the device, preferably GPU.
+device = torch.device("cuda") if torch.cuda.is_available() else None
+
 if modelArgs.load_checkpoint is not None:
-    logging.info("loading checkpoint from {}".format(os.path.join(modelArgs.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, modelArgs.load_checkpoint)))
+    logging.info("loading checkpoint from {}".format(
+           os.path.join(modelArgs.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, modelArgs.load_checkpoint)))
     checkpoint_path = os.path.join(modelArgs.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, modelArgs.load_checkpoint)
     checkpoint = Checkpoint.load(checkpoint_path)
     h2hModel = checkpoint.model
@@ -243,11 +247,9 @@ else:
     # hier2hier.tgt_field_name = 'tgt'
 
     # Prepare loss
-    weight = torch.ones(len(tgt.vocab))
+    weight = torch.ones(len(tgt.vocab), device=device)
     pad = tgt.vocab.stoi[tgt.pad_token]
-    loss = Perplexity(weight, pad)
-    if torch.cuda.is_available():
-        loss.cuda()
+    loss = Perplexity(weight, pad, device=device)
 
     h2hModel = None
     optimizer = None
@@ -263,10 +265,8 @@ else:
             tgt.vocab,
             tgt.sos_id,
             tgt.eos_id,
+            device=device
             )
-
-        if torch.cuda.is_available():
-            h2hModel.cuda()
 
         for param in h2hModel.parameters():
             param.data.uniform_(-0.08, 0.08)
@@ -290,7 +290,8 @@ else:
                       dev_data=dev,
                       optimizer=optimizer,
                       teacher_forcing_ratio=modelArgs.teacher_forcing_ratio,
-                      resume=modelArgs.resume)
+                      resume=modelArgs.resume,
+                      device=device)
 
 predictor = Predictor(h2hModel, src.vocabs, tgt.vocab)
 

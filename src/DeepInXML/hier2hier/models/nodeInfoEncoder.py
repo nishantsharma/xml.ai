@@ -16,10 +16,11 @@ from .encoderRNN import EncoderRNN
 from .utils import onehotencode, checkNans
 
 class TagEncoder(nn.Module):
-    def __init__(self, tagsVocab, max_node_count):
+    def __init__(self, tagsVocab, max_node_count, device=None):
         super().__init__()
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
+        self.device = device
 
     def forward(self, node2Index, node2Parent, xmlTreeList):
         allTreeCodes = []
@@ -30,14 +31,14 @@ class TagEncoder(nn.Module):
                 assert(index == node2Index[node])
             allTreeCodes.append(treeCode)
 
-        return torch.Tensor(allTreeCodes)
+        return torch.tensor(allTreeCodes, device=self.device)
 
     @property
     def output_vec_len(self):
         return len(self.tagsVocab)
 
 class NodeTextEncoder(EncoderRNN):
-    def __init__(self, textVocab, max_node_count, max_node_text_len, node_text_vec_len):
+    def __init__(self, textVocab, max_node_count, max_node_text_len, node_text_vec_len, device=None):
         super().__init__(
             len(textVocab),
             max_node_text_len,
@@ -48,6 +49,7 @@ class NodeTextEncoder(EncoderRNN):
         self.textVocab = textVocab
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
+        self.device = device
 
     def forward(self, node2Index, node2Parent, xmlTreeList):
         maxLen = -1
@@ -73,8 +75,8 @@ class NodeTextEncoder(EncoderRNN):
             # Pad curTextAsList and add to textList.
             curTextAsListPadded = curTextAsList + [self.textVocab.stoi["<pad>"]] * (maxTextLen - len(text))
             textList.append(curTextAsListPadded)
-        textTensor = torch.tensor(textList, dtype=torch.long)
-        textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long)
+        textTensor = torch.tensor(textList, dtype=torch.long, device=self.device)
+        textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long, device=self.device)
 
         # Encode.
         _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
@@ -89,7 +91,7 @@ class NodeTextEncoder(EncoderRNN):
 
         # Get back node text indices in original order.
         allTextEncoded = []
-        zeroPaddingNodeVec = torch.zeros([self.node_text_vec_len])
+        zeroPaddingNodeVec = torch.zeros([self.node_text_vec_len], device=self.device)
         for treeIndex, nodeIndex2EncodedIndex in treeIndex2NodeIndex2EncodedIndex.items():
             treeTextEncoded = [
                 encodedTextVec[:, encodedIndex, :]
@@ -106,11 +108,12 @@ class NodeTextEncoder(EncoderRNN):
         return allTextEncoded
 
 class AttribsEncoder(nn.Module):
-    def __init__(self, attribsVocab, attribValueEncoder, max_node_count):
+    def __init__(self, attribsVocab, attribValueEncoder, max_node_count, device=None):
         super().__init__()
         self.attribsVocab = attribsVocab
         self.attribValueEncoder = attribValueEncoder
         self.max_node_count = max_node_count
+        self.device = device
 
     @property
     def output_vec_len(self):
@@ -121,8 +124,8 @@ class AttribsEncoder(nn.Module):
         attrCount = len(self.attribsVocab)
         attrVecLen = self.attribValueEncoder.hidden_size
         retval = []
-        #torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen])
-        zeroAttrib = torch.zeros(1, attrVecLen)
+        #torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen], device=self.device)
+        zeroAttrib = torch.zeros(1, attrVecLen, device=self.device)
         for treeIndex, xmlTree in enumerate(xmlTreeList):
             encodedTree = []
             for node in xmlTree.iter():
@@ -156,14 +159,29 @@ class NodeInfoEncoder(nn.Module):
             max_node_text_len,
             node_text_vec_len,
             max_attrib_value_len,
-            attrib_value_vec_len):
+            attrib_value_vec_len,
+            device=None):
         super().__init__()
+        self.device = device
 
         # Build component encoders.
-        self.tagsEncoder = TagEncoder(tagsVocab, max_node_count)
-        self.nodeTextEncoder = NodeTextEncoder(textVocab, max_node_count, max_node_text_len, node_text_vec_len)
-        self.attribValueEncoder = EncoderRNN(len(attribValueVocab), max_attrib_value_len, len(attribValueVocab), attrib_value_vec_len)
-        self.attribsEncoder = AttribsEncoder(attribsVocab, self.attribValueEncoder, max_node_count)
+        self.tagsEncoder = TagEncoder(tagsVocab, max_node_count, device=device)
+        self.nodeTextEncoder = NodeTextEncoder(
+                textVocab,
+                max_node_count,
+                max_node_text_len,
+                node_text_vec_len,
+                device=device)
+        self.attribValueEncoder = EncoderRNN(
+                len(attribValueVocab),
+                max_attrib_value_len,
+                len(attribValueVocab),
+                attrib_value_vec_len)
+        self.attribsEncoder = AttribsEncoder(
+                attribsVocab,
+                self.attribValueEncoder,
+                max_node_count,
+                device=device)
 
     @property
     def output_vec_len(self):

@@ -12,6 +12,7 @@ class SourceField(torchtext.data.RawField):
     """ Wrapper class of torchtext.data.Field that forces batch_first and include_lengths to be True. """
 
     def __init__(self, **kwargs):
+        self.is_target=False
         logger = logging.getLogger(__name__)
         super().__init__(**kwargs, postprocessing=self.postprocess, preprocessing=self.preprocess)
 

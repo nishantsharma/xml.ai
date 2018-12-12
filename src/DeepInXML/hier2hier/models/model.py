@@ -14,8 +14,6 @@ from .nodeInfoEncoder import NodeInfoEncoder
 from .nodeInfoPropagator import NodeInfoPropagator
 from .outputDecoder import OutputDecoder
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 class Hier2hier(nn.Module):
     def __init__(self,
             modelArgs,
@@ -25,7 +23,8 @@ class Hier2hier(nn.Module):
             attribValueVocab,
             outputVocab,
             sos_id,
-            eos_id):
+            eos_id,
+            device=None):
         super().__init__()
         self.modelArgs = modelArgs
         self.nodeInfoEncoder = NodeInfoEncoder(
@@ -37,13 +36,15 @@ class Hier2hier(nn.Module):
             modelArgs.max_node_text_len,
             modelArgs.node_text_vec_len,
             modelArgs.max_attrib_value_len,
-            modelArgs.attrib_value_vec_len)
+            modelArgs.attrib_value_vec_len,
+            device=device)
 
         self.nodeInfoPropagator = NodeInfoPropagator(
             self.nodeInfoEncoder.output_vec_len,
             modelArgs.propagated_info_len,
             modelArgs.max_node_count,
-            modelArgs.node_info_propagator_stack_depth)
+            modelArgs.node_info_propagator_stack_depth,
+            device=device)
 
         self.outputDecoder = OutputDecoder(
             outputVocab,
@@ -57,7 +58,10 @@ class Hier2hier(nn.Module):
             modelArgs.input_dropout_p,
             modelArgs.dropout_p,
             modelArgs.use_attention,
+            device=device,
             )
+        super().cuda(device)
+        
 
     def forward(self,
             xmlTreeList,

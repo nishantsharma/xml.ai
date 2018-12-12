@@ -4,7 +4,7 @@ Ubuntu instance where it is running is automatically shut down and deallocated.
 The intention is to save money  on unused cloud VMs.
 
 Pre Conditions:
-    These settings only apply to Ubuntu based systems supporting GPU.
+    These settings only apply to Ubuntu based Azure VMs supporting GPU.
 
 VM Configuration Steps:
     Install Azure CLI on the VM by following the steps below.

@@ -11,20 +11,19 @@ from torch import optim
 import torch.nn.functional as F
 from .utils import invertPermutation, checkNans
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
 class NodeInfoPropagator(nn.Module):
     def __init__(self,
             encoded_node_vec_len,
             propagated_info_len,
             max_node_count,
-            node_info_propagator_stack_depth):
+            node_info_propagator_stack_depth,
+            device=None):
         super().__init__()
         self.encoded_node_vec_len = encoded_node_vec_len
         self.propagated_info_len = propagated_info_len
         self.max_node_count = max_node_count
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
+        self.device = device
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
@@ -46,7 +45,7 @@ class NodeInfoPropagator(nn.Module):
 
         # Compute the permutation to use.
         flatIndicesByDecreasingFanout = [ flatIndex for (flatIndex, _) in flatIndicesWithFanout ]
-        decreasingFanouts = torch.tensor([ fanout for (_, fanout) in flatIndicesWithFanout])
+        decreasingFanouts = torch.tensor([ fanout for (_, fanout) in flatIndicesWithFanout], device=self.device)
         return flatIndicesByDecreasingFanout, decreasingFanouts
 
     def computeFlatReOrderedIndexMap(self,
@@ -124,7 +123,7 @@ class NodeInfoPropagator(nn.Module):
             checkNans(parentInfosToPropagateReOrdered)
 
             # Compute children info to propagate to each node.
-            childrenInfoToPropagateReOrdered = torch.tensor([])
+            childrenInfoToPropagateReOrdered = torch.tensor([], device=self.device)
             for selectorForChildrenInfo in selectorForChildrenInfoList:
                 curChildrenInfoReOrdered = nodeInfoPropagatedReOrdered[selectorForChildrenInfo, ...]
                 if not childrenInfoToPropagateReOrdered.shape[0]:
@@ -148,7 +147,7 @@ class NodeInfoPropagator(nn.Module):
                 childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, finalDeficit)(childrenInfoToPropagateReOrdered)
             else:
                 # The case where no node has a child an all are in deficit.
-                childrenInfoToPropagateReOrdered = torch.zeros(nodeInfoPropagatedFlat.shape)
+                childrenInfoToPropagateReOrdered = torch.zeros(nodeInfoPropagatedFlat.shape, device=self.device)
 
             # Apply distinct linear operations on parent and children node infos before propagate.
             checkNans(parentInfosToPropagateReOrdered)

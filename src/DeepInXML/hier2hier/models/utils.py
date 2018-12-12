@@ -7,9 +7,9 @@ def invertPermutation(perm):
     return inverse
 
 def onehotencode(n, i):
-    return [1 if j==i else 0 for j in range(n)]
+    return [1.0 if j==i else 0.0 for j in range(n)]
 
-debugNans = True
+debugNans = False 
 def checkNans(t):
     if not debugNans:
         return

@@ -12,8 +12,6 @@ from .attention import Attention
 from .utils import invertPermutation, onehotencode, checkNans
 import torch.nn.functional as F
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 class OutputDecoder(BaseRNN):
     def __init__(self,
             output_vocab,
@@ -26,7 +24,8 @@ class OutputDecoder(BaseRNN):
             eos_id,
             input_dropout_p=0,
             dropout_p=0,
-            use_attention=False):
+            use_attention=False,
+            device=None):
         super().__init__(len(output_vocab), max_output_len, output_decoder_state_width,
                 input_dropout_p, dropout_p, output_decoder_stack_depth, "gru")
         self.propagated_info_len = propagated_info_len
@@ -37,6 +36,7 @@ class OutputDecoder(BaseRNN):
         self.sos_id = sos_id
         self.eos_id = eos_id
         self.pad_id = output_vocab.stoi["<pad>"]
+        self.device = device
 
         self.gruInputLen = propagated_info_len + len(output_vocab)
         self.gruCell = self.rnn_cell(
@@ -140,7 +140,8 @@ class OutputDecoder(BaseRNN):
 
         # Initialize cur attention by paying attention to the root node.
         # For each sample, the first node is root and hence it is the parent of itself.
-        curAttention = torch.Tensor([onehotencode(self.max_node_count, 0) for _ in range(sampleCount)])
+        curAttention = torch.tensor([onehotencode(self.max_node_count, 0) for _ in range(sampleCount)],
+                                    device=self.device)
         for i in range(sampleCount):
             assert(treeIndex2NodeIndex2NbrIndices[i][0][0] == 0)
 
@@ -148,20 +149,22 @@ class OutputDecoder(BaseRNN):
         curGruState = torch.zeros((
             self.output_decoder_stack_depth,
             sampleCount,
-            self.output_decoder_state_width,))
+            self.output_decoder_state_width,), device=self.device)
 
         # Build symbol loop input.
-        curSymbolTensor = torch.Tensor([onehotencode(len(self.output_vocab), self.sos_id) for _ in range(sampleCount)])
+        curSymbolTensor = torch.tensor([onehotencode(len(self.output_vocab), self.sos_id) for _ in range(sampleCount)],
+                                       device=self.device)
 
         # It is 1 at sampleIndex when teacher forcing for that index is 1, else 0.
-        teacherForcingTensor = torch.Tensor(
+        teacherForcingTensor = torch.tensor(
             [
-                [1 if random.random() < teacher_forcing_ratio else 0]
+                [1.0 if random.random() < teacher_forcing_ratio else 0.0]
                 for _ in range(sampleCount)
-            ])
+            ],
+            device=self.device)
 
         # It is 0 at sampleIndex when teacher forcing for that index is 1, else 1.
-        loopbackForcingTensor = torch.ones(1) - teacherForcingTensor
+        loopbackForcingTensor = torch.ones(1, device=self.device) - teacherForcingTensor
 
         for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
             # Clip loop variables, restricting sample indices to sampleIndexLimit.
@@ -187,7 +190,7 @@ class OutputDecoder(BaseRNN):
 
                 curGruInput = torch.cat([nodeInfoToAttend, curSymbolTensor], -1)
                 curGruInput = curGruInput.view(sampleIndexLimit, 1, self.gruInputLen)
-                curOutput, curGruState = self.gruCell(curGruInput, curGruState)
+                curOutput, curGruState = self.gruCell(curGruInput, curGruState.contiguous())
 
                 # Compute next symbol.
                 nextSymbolTensor, nextSymbol = self.decodeSymbol(curOutput)
@@ -198,11 +201,12 @@ class OutputDecoder(BaseRNN):
                 outputSymbolTensors.append(nextSymbolTensor)
                 checkNans(nextSymbolTensor)
 
-                targetSymbolTensor = torch.Tensor(
+                targetSymbolTensor = torch.tensor(
                     [
                         onehotencode(len(self.output_vocab), targetOutput[sampleIndex][curOutputIndex])
                         for sampleIndex in range(sampleIndexLimit)
-                    ])
+                    ],
+                    device=self.device)
 
                 curSymbolTensor = (
                     teacherForcingTensor * targetSymbolTensor
@@ -213,7 +217,7 @@ class OutputDecoder(BaseRNN):
         outputSymbolsTransposed = []
         for _ in range(numSamples):
             outputSymbolsTransposed.append([])
-        padTensor = torch.Tensor([onehotencode(len(self.output_vocab), self.pad_id)])
+        padTensor = torch.tensor([onehotencode(len(self.output_vocab), self.pad_id)], device=self.device)
 
         for i, (curSymbolColumn, curSymbolTensorColumn) in enumerate(zip(outputSymbols, outputSymbolTensors)):
             for j, curSymbol in enumerate(curSymbolColumn):

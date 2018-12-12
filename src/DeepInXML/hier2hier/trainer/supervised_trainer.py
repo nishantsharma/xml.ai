@@ -78,13 +78,12 @@ class SupervisedTrainer(object):
         return loss.get_loss()
 
     def _train_epoches(self, data, model, n_epochs, start_epoch, start_step,
-                       dev_data=None, teacher_forcing_ratio=0):
+                       dev_data=None, teacher_forcing_ratio=0, device=None):
         log = self.logger
 
         print_loss_total = 0  # Reset every print_every
         epoch_loss_total = 0  # Reset every epoch
 
-        device = None if torch.cuda.is_available() else -1
         batch_iterator = torchtext.data.BucketIterator(
             dataset=data, batch_size=self.batch_size,
             sort=False, #sort_within_batch=True,
@@ -162,7 +161,7 @@ class SupervisedTrainer(object):
 
     def train(self, model, data, num_epochs=5,
               resume=False, dev_data=None,
-              optimizer=None, teacher_forcing_ratio=0):
+              optimizer=None, teacher_forcing_ratio=0, device=None):
         """ Run training for a given model.
 
         Args:
@@ -205,5 +204,5 @@ class SupervisedTrainer(object):
 
         self._train_epoches(data, model, num_epochs,
                             start_epoch, step, dev_data=dev_data,
-                            teacher_forcing_ratio=teacher_forcing_ratio)
+                            teacher_forcing_ratio=teacher_forcing_ratio, device=device)
         return model

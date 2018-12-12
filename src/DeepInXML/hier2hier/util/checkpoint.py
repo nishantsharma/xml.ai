@@ -1,6 +1,6 @@
 from __future__ import print_function
 import os, time, shutil, glob
-from attrdict import AttrDict
+from orderedattrdict import AttrDict
 
 import torch
 import dill
