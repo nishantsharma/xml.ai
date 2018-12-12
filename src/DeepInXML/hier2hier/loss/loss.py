@@ -39,7 +39,11 @@ class Loss(object):
             raise ValueError("Criterion has to be a subclass of torch.nn._Loss")
 
         # Send object to GPU.
-        self.criterion.cuda(device=device)
+        if device is None:
+            self.criterion.cpu()
+        else:
+            self.criterion.cuda(device=device)
+
         # accumulated loss
         self.acc_loss = 0
         # normalization term

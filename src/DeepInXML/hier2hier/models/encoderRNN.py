@@ -49,8 +49,8 @@ class EncoderRNN(BaseRNN):
     """
     def __init__(self, vocab_size, max_len, input_size, hidden_size,
             input_dropout_p=0, dropout_p=0, n_layers=1, bidirectional=False, rnn_cell="gru", variable_lengths=False,
-            embedding=None, update_embedding=True):
-        super().__init__(vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell)
+            embedding=None, update_embedding=True, device=None):
+        super().__init__(vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, device)
         
         self.input_size = input_size
         self.hidden_size = hidden_size

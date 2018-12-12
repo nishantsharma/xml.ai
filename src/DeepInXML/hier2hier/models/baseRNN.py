@@ -10,7 +10,9 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
-class BaseRNN(nn.Module):
+from .moduleBase import ModuleBase
+
+class BaseRNN(ModuleBase):
     """
     Applies a multi-layer RNN to an input sequence.
     Note:
@@ -35,8 +37,8 @@ class BaseRNN(nn.Module):
     SYM_MASK = "MASK"
     SYM_EOS = "EOS"
 
-    def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell):
-        super(BaseRNN, self).__init__()
+    def __init__(self, vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, device=None):
+        super(BaseRNN, self).__init__(device)
         self.vocab_size = vocab_size
         self.max_len = max_len
         self.hidden_size = hidden_size

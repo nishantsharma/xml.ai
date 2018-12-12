@@ -12,15 +12,15 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
+from .moduleBase import ModuleBase 
 from .encoderRNN import EncoderRNN
 from .utils import onehotencode, checkNans
 
-class TagEncoder(nn.Module):
+class TagEncoder(ModuleBase):
     def __init__(self, tagsVocab, max_node_count, device=None):
-        super().__init__()
+        super().__init__(device)
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
-        self.device = device
 
     def forward(self, node2Index, node2Parent, xmlTreeList):
         allTreeCodes = []
@@ -45,11 +45,11 @@ class NodeTextEncoder(EncoderRNN):
             len(textVocab),
             node_text_vec_len,
             variable_lengths=True,
-            bidirectional=False)
+            bidirectional=False,
+            device=device)
         self.textVocab = textVocab
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
-        self.device = device
 
     def forward(self, node2Index, node2Parent, xmlTreeList):
         maxLen = -1
@@ -107,13 +107,12 @@ class NodeTextEncoder(EncoderRNN):
 
         return allTextEncoded
 
-class AttribsEncoder(nn.Module):
+class AttribsEncoder(ModuleBase):
     def __init__(self, attribsVocab, attribValueEncoder, max_node_count, device=None):
-        super().__init__()
+        super().__init__(device)
         self.attribsVocab = attribsVocab
         self.attribValueEncoder = attribValueEncoder
         self.max_node_count = max_node_count
-        self.device = device
 
     @property
     def output_vec_len(self):
@@ -144,7 +143,7 @@ class AttribsEncoder(nn.Module):
         retval = torch.cat(retval)
         return retval
 
-class NodeInfoEncoder(nn.Module):
+class NodeInfoEncoder(ModuleBase):
     """
     Applies a multi layer GRU to an input character sequence.
 
@@ -161,8 +160,7 @@ class NodeInfoEncoder(nn.Module):
             max_attrib_value_len,
             attrib_value_vec_len,
             device=None):
-        super().__init__()
-        self.device = device
+        super().__init__(device)
 
         # Build component encoders.
         self.tagsEncoder = TagEncoder(tagsVocab, max_node_count, device=device)
@@ -176,7 +174,8 @@ class NodeInfoEncoder(nn.Module):
                 len(attribValueVocab),
                 max_attrib_value_len,
                 len(attribValueVocab),
-                attrib_value_vec_len)
+                attrib_value_vec_len,
+                device=device)
         self.attribsEncoder = AttribsEncoder(
                 attribsVocab,
                 self.attribValueEncoder,

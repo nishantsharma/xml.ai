@@ -182,6 +182,7 @@ class SupervisedTrainer(object):
             latest_checkpoint_path = Checkpoint.get_latest_checkpoint(self.expt_dir)
             resume_checkpoint = Checkpoint.load(latest_checkpoint_path)
             model = resume_checkpoint.model
+            model.set_device(device)
             self.optimizer = resume_checkpoint.optimizer
 
             # A walk around to set optimizing parameters properly

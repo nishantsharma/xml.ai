@@ -10,20 +10,20 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 from .utils import invertPermutation, checkNans
+from .moduleBase import ModuleBase
 
-class NodeInfoPropagator(nn.Module):
+class NodeInfoPropagator(ModuleBase):
     def __init__(self,
             encoded_node_vec_len,
             propagated_info_len,
             max_node_count,
             node_info_propagator_stack_depth,
             device=None):
-        super().__init__()
+        super().__init__(device)
         self.encoded_node_vec_len = encoded_node_vec_len
         self.propagated_info_len = propagated_info_len
         self.max_node_count = max_node_count
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
-        self.device = device
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)

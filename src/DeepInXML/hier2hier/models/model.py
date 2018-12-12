@@ -10,11 +10,12 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
+from .moduleBase import ModuleBase 
 from .nodeInfoEncoder import NodeInfoEncoder
 from .nodeInfoPropagator import NodeInfoPropagator
 from .outputDecoder import OutputDecoder
 
-class Hier2hier(nn.Module):
+class Hier2hier(ModuleBase):
     def __init__(self,
             modelArgs,
             tagsVocab,
@@ -25,7 +26,8 @@ class Hier2hier(nn.Module):
             sos_id,
             eos_id,
             device=None):
-        super().__init__()
+        super().__init__(device)
+
         self.modelArgs = modelArgs
         self.nodeInfoEncoder = NodeInfoEncoder(
             tagsVocab,
@@ -61,7 +63,6 @@ class Hier2hier(nn.Module):
             device=device,
             )
         super().cuda(device)
-        
 
     def forward(self,
             xmlTreeList,

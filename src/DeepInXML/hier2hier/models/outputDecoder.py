@@ -27,7 +27,7 @@ class OutputDecoder(BaseRNN):
             use_attention=False,
             device=None):
         super().__init__(len(output_vocab), max_output_len, output_decoder_state_width,
-                input_dropout_p, dropout_p, output_decoder_stack_depth, "gru")
+                input_dropout_p, dropout_p, output_decoder_stack_depth, "gru", device)
         self.propagated_info_len = propagated_info_len
         self.output_decoder_state_width = output_decoder_state_width
         self.output_decoder_stack_depth = output_decoder_stack_depth
@@ -36,7 +36,6 @@ class OutputDecoder(BaseRNN):
         self.sos_id = sos_id
         self.eos_id = eos_id
         self.pad_id = output_vocab.stoi["<pad>"]
-        self.device = device
 
         self.gruInputLen = propagated_info_len + len(output_vocab)
         self.gruCell = self.rnn_cell(
