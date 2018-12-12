@@ -72,5 +72,5 @@ class Predictor(object):
 
         return result
 
-if __name__ == "__main__":
-    
+#if __name__ == "__main__":
+
