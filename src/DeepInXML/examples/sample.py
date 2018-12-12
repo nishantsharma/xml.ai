@@ -41,7 +41,7 @@ parser.add_argument('--train_path', action='store', dest='train_path',
                     help='Path to training data')
 parser.add_argument('--dev_path', action='store', dest='dev_path',
                     help='Path to dev data')
-parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='./experiment',
+parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='../../experiment',
                     help='Path to experiment directory. If load_checkpoint is True, then path to checkpoint directory has to be provided')
 parser.add_argument('--load_checkpoint', action='store', dest='load_checkpoint',
                     help='The name of the checkpoint to load, usually an encoded time string')
@@ -52,7 +52,7 @@ parser.add_argument('--log-level', dest='log_level',
                     default='info',
                     help='Logging level.')
 parser.add_argument("--save_to_dir",
-                    type=str, default="output/",
+                    type=str, default="../../output/",
                     help="Target directory where all output is saved.")
 parser.add_argument("--debug",
                     type=str2bool, default=False,
@@ -162,7 +162,7 @@ def updateModelArgsFromData(dataset, modelArgs):
         outputTextList = getattr(batch, hier2hier.tgt_field_name)
         for outputText in outputTextList:
             maxOutputLen = max(maxOutputLen, len(outputText))
-        
+
     if modelArgs.num_samples is None:
         modelArgs.num_samples = len(dataset)
     elif modelArgs.num_samples < len(dataset):
@@ -235,7 +235,7 @@ else:
 
     src.build_vocabs(train, max_size=50000)
     tgt.build_vocab(train, max_size=50000)
- 
+
     # NOTE: If the source field name and the target field name
     # are different from 'src' and 'tgt' respectively, they have
     # to be set explicitly before any training or inference

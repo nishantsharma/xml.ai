@@ -44,7 +44,7 @@ if __name__ == '__main__':
                         action="store_true", dest="enable_choice", default=False,
                         help="enable the <choice> mode")
     parser.add_argument('-d', '--dir',
-                        help="data directory", default="../data")
+                        help="data directory", default="../../../data")
     parser.add_argument('-m', '--max-len',
                         help="max sequence length", default=10)
     args = parser.parse_args()
