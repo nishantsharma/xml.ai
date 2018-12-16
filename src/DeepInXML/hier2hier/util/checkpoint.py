@@ -14,7 +14,7 @@ class Checkpoint(object):
     to write parameters to disk.
 
     Args:
-        model (seq2seq): seq2seq model being trained
+        model (hier2hier): hier2hier model being trained
         optimizer (Optimizer): stores the state of the optimizer
         epoch (int): current epoch (an epoch is a loop through the full training data)
         step (int): number of examples seen within the current epoch
@@ -29,19 +29,20 @@ class Checkpoint(object):
         OUTPUT_VOCAB_FILE (str): name of the output vocab file
     """
 
-    CHECKPOINT_DIR_NAME = 'checkpoints'
+    CHECKPOINT_DIR_NAME = 'checkpoints/'
     TRAINER_STATE_NAME = 'trainer_states.pt'
     MODEL_NAME = 'model.pt'
     INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
     OUTPUT_VOCAB_FILE = 'output_vocab.pt'
 
-    def __init__(self, model, optimizer, epoch, step, input_vocabs, output_vocab, path=None):
+    def __init__(self, model, optimizer, epoch, step, batch_size, input_vocabs, output_vocab, path=None):
         self.model = model
         self.optimizer = optimizer
         self.input_vocabs = input_vocabs
         self.output_vocab = output_vocab
         self.epoch = epoch
         self.step = step
+        self.batch_size = batch_size
         self._path = path
 
     @property
@@ -69,6 +70,7 @@ class Checkpoint(object):
         os.makedirs(path)
         torch.save({'epoch': self.epoch,
                     'step': self.step,
+                    'batch_size': self.batch_size,
                     'optimizer': self.optimizer
                    },
                    os.path.join(path, self.TRAINER_STATE_NAME))
@@ -105,19 +107,23 @@ class Checkpoint(object):
         for input_vocab_file in input_vocab_files:
             vocab_name = os.path.basename(input_vocab_file)
             start = cls.INPUT_VOCABS_FILE.index("{0}")
-            end = start + len(vocab_name) - len(cls.INPUT_VOCABS_FILE) + 2
+            end = start + len(vocab_name) - len(cls.INPUT_VOCABS_FILE) + 3
             vocab_name  = vocab_name[start:end]
             with open(input_vocab_file, 'rb') as fin:
                 input_vocabs[vocab_name] = dill.load(fin)
+        model.inputVocabs = input_vocabs
 
         with open(os.path.join(path, cls.OUTPUT_VOCAB_FILE), 'rb') as fin:
             output_vocab = dill.load(fin)
+        model.outputVocab = output_vocab
+
         optimizer = resume_checkpoint['optimizer']
         return Checkpoint(model=model, input_vocabs=input_vocabs,
                           output_vocab=output_vocab,
                           optimizer=optimizer,
                           epoch=resume_checkpoint['epoch'],
                           step=resume_checkpoint['step'],
+                          batch_size=resume_checkpoint.get('batch_size', 100),
                           path=path)
 
     @classmethod
@@ -131,6 +137,7 @@ class Checkpoint(object):
         Returns:
              str: path to the last saved checkpoint's subdirectory
         """
-        checkpoints_path = os.path.join(experiment_path, cls.CHECKPOINT_DIR_NAME)
-        all_times = sorted(os.listdir(checkpoints_path), reverse=True)
-        return os.path.join(checkpoints_path, all_times[0])
+        checkpoints_path = experiment_path + cls.CHECKPOINT_DIR_NAME
+        all_items = sorted(os.listdir(checkpoints_path), reverse=True)
+        all_items = [item for item in all_items if os.path.exists(checkpoints_path + item + "/model.pt")]
+        return os.path.join(checkpoints_path, all_items[0])

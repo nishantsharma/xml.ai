@@ -21,7 +21,7 @@ class SourceField(torchtext.data.RawField):
 
     def postprocess(self,  batch):
         return batch
-        
+
     def build_vocabs(self, hier_dataset, max_size=None):
         # Collect all symbols.
         inputTags, inputAttribs, inputAttribValues, inputText = Counter(), Counter(), Counter(), Counter()
@@ -51,7 +51,7 @@ class SourceField(torchtext.data.RawField):
         self.vocabs.tags = torchtext.vocab.Vocab(inputTags, max_size)
         self.vocabs.attribs = torchtext.vocab.Vocab(inputAttribs, max_size)
         self.vocabs.attribValues = torchtext.vocab.Vocab(inputAttribValues, max_size)
-        self.vocabs.text = torchtext.vocab.Vocab(inputText, max_size) 
+        self.vocabs.text = torchtext.vocab.Vocab(inputText, max_size)
 
 class TargetField(torchtext.data.Field):
     """ Wrapper class of torchtext.data.Field that forces batch_first to be True and prepend <sos> and append <eos> to sequences in preprocessing step.
@@ -60,7 +60,6 @@ class TargetField(torchtext.data.Field):
         sos_id: index of the start of sentence symbol
         eos_id: index of the end of sentence symbol
     """
-
 
     def __init__(self, **kwargs):
         logger = logging.getLogger(__name__)
@@ -80,7 +79,7 @@ class TargetField(torchtext.data.Field):
             kwargs['preprocessing'] = lambda seq: [self.SYM_SOS] + func(seq) + [self.SYM_EOS]
 
         if kwargs.get('include_lengths') is False:
-             logger.warning("Option include_lengths has to be set to use pytorch-seq2seq.  Changed to True.")
+             logger.warning("Option include_lengths has to be set to use pytorch-hier2hier.  Changed to True.")
         kwargs['include_lengths'] = True
 
         kwargs["init_token"] = SYM_SOS

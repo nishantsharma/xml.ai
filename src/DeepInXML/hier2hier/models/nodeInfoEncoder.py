@@ -12,9 +12,10 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
-from .moduleBase import ModuleBase 
+from .moduleBase import ModuleBase
 from .encoderRNN import EncoderRNN
-from .utils import onehotencode, checkNans
+from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockProfiler,
+                            methodProfiler, lastCallProfile)
 
 class TagEncoder(ModuleBase):
     def __init__(self, tagsVocab, max_node_count, device=None):
@@ -22,6 +23,7 @@ class TagEncoder(ModuleBase):
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
 
+    @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         allTreeCodes = []
         for index, xmlTree in enumerate(xmlTreeList):
@@ -51,6 +53,7 @@ class NodeTextEncoder(EncoderRNN):
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
 
+    @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         maxLen = -1
         allText = []
@@ -118,6 +121,7 @@ class AttribsEncoder(ModuleBase):
     def output_vec_len(self):
         return len(self.attribsVocab) * self.attribValueEncoder.output_vec_len[1]
 
+    @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         sampleCount = len(xmlTreeList)
         attrCount = len(self.attribsVocab)
@@ -133,12 +137,10 @@ class AttribsEncoder(ModuleBase):
                     attribVec = self.attribValueEncoder(attribValue)
                     attribIndex = self.attribsVocab.stoi[attribName]
                     encodedNode[attribIndex] = attribVec
-                    checkNans(attribVec)
                 encodedNode = torch.cat(encodedNode).view(1, attrCount, attrVecLen)
                 encodedTree.append(encodedNode)
             encodedTree = torch.cat(encodedTree).view(1, self.max_node_count, attrCount, attrVecLen)
             retval.append(encodedTree)
-            checkNans(encodedTree)
 
         retval = torch.cat(retval)
         return retval
@@ -190,18 +192,14 @@ class NodeInfoEncoder(ModuleBase):
         retval += self.attribsEncoder.output_vec_len
         return retval
 
+    @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         encodedTags = self.tagsEncoder(node2Index, node2Parent, xmlTreeList)
         encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList)
         encodedAttributes = self.attribsEncoder(node2Index, node2Parent, xmlTreeList)
-        checkNans(encodedTags)
-        checkNans(encodedText)
-        checkNans(encodedAttributes)
 
         attrShape = encodedAttributes.shape
         newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[-2],)
         encodedAttributesReshaped = encodedAttributes.view(newAttrShape)
-
         retval = torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
-        checkNans(retval)
         return retval

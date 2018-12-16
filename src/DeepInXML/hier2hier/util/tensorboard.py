@@ -1,11 +1,12 @@
 from tensorboardX import SummaryWriter 
 
 class TensorBoardHook(SummaryWriter):
-    def __init__(self, *argv, **kargv):
-        super().__init__(*argv, **kargv)
+    def __init__(self, expt_dir, debug, *argv, **kargv):
+        super().__init__(expt_dir, *argv, **kargv)
         self._batch = -1
         self._epoch = -1
         self._step = -1
+        self.debug=debug
 
     def batchNext(self):
         self._batch += 1
@@ -24,7 +25,9 @@ class TensorBoardHook(SummaryWriter):
             self._batch = step - (epoch-1)*steps_per_epoch
 
     def add_scalar(self, label, value):
-        super().add_scalar(label, value, self._step)
+        if self.debug:
+            super().add_scalar(label, value, self._step)
 
     def add_histogram(self, label, value):
-        super().add_histogram(label, value.cpu().detach().numpy(), self._step)
+        if self.debug:
+            super().add_histogram(label, value.cpu().detach().numpy(), self._step)

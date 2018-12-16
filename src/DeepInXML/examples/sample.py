@@ -7,6 +7,8 @@ import torch
 from torch.optim.lr_scheduler import StepLR
 import torchtext
 
+import xml.etree.ElementTree as ET
+
 import hier2hier
 from hier2hier.trainer import SupervisedTrainer
 from hier2hier.models import Hier2hier
@@ -37,11 +39,9 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 parser = argparse.ArgumentParser()
-parser.add_argument('--train_path', action='store', dest='train_path',
-                    help='Path to training data')
-parser.add_argument('--dev_path', action='store', dest='dev_path',
-                    help='Path to dev data')
-parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='../../experiment',
+parser.add_argument('--input_path', action='store', dest='data_path',
+                    help='Path to folder containing dev, train and test input data folders.')
+parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='../../experiment/',
                     help='Path to experiment directory. If load_checkpoint is True, then path to checkpoint directory has to be provided')
 parser.add_argument('--load_checkpoint', action='store', dest='load_checkpoint',
                     help='The name of the checkpoint to load, usually an encoded time string')
@@ -57,18 +57,19 @@ parser.add_argument("--save_to_dir",
 parser.add_argument("--debug",
                     type=str2bool, default=False,
                     help="Set to true to enable debug mode.")
+parser.add_argument("--profile",
+                    type=str2bool, default=False,
+                    help="Set to true to enable profiling info printing mode.")
 
 # Build training args needed during training and also inference.
-parser.add_argument("--batch_size", type = int, default = 100,
-                    help="Batch size for training.")
-parser.add_argument("--epochs", type = int, default = 4000,
+parser.add_argument("--epochs", type = int, default = 400,
                     help="Number of epochs to train for.")
+parser.add_argument("--batch_size", type = int, default = 1000,
+                    help="Batch size for training.")
 parser.add_argument("--num_samples", type = int, default = None,
                     help="Number of samples to train on.")
-parser.add_argument("--checkpoint_every", type = int, default = 50,
+parser.add_argument("--checkpoint_every", type = int, default = 10,
                     help="Number of epochs after which we take a checkpoint.")
-parser.add_argument("--teacher_forcing_ratio", type = int, default = 0.50,
-                    help="Teacher forcing ratio to using during decoder training.")
 parser.add_argument("--print_every", type = int, default = 10,
                     help="Print progress information, after every so many batches.")
 
@@ -99,9 +100,9 @@ parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 
                     + "hops that information would propagate in the graph inside nodeInfoPropagator.")
 parser.add_argument("--propagated_info_len", type = int, default = 64,
                     help="Length of node information vector, when being propagated.")
-parser.add_argument("--output_decoder_stack_depth", type = int, default = 3,
+parser.add_argument("--output_decoder_stack_depth", type = int, default = 7,
                     help="Stack depth of node decoder.")
-parser.add_argument("--output_decoder_state_width", type = int, default = 128,
+parser.add_argument("--output_decoder_state_width", type = int, default = 32,
                     help="Width of GRU cell in output decoder.")
 
 # Other meta-parameters of the generated neural network.
@@ -111,8 +112,13 @@ parser.add_argument("--dropout_p", type = int, default = 0,
                     help="Dropout probability.")
 parser.add_argument("--use_attention", type = int, default = True,
                     help="Use attention while selcting most appropriate.")
+parser.add_argument("--teacher_forcing_ratio", type = int, default = 0.50,
+                    help="Teacher forcing ratio to using during decoder training.")
 
 modelArgs = parser.parse_args()
+modelArgs.dev_path = modelArgs.data_path + "dev/"
+modelArgs.test_path = modelArgs.data_path + "test/"
+modelArgs.train_path = modelArgs.data_path + "train/"
 
 os.makedirs(modelArgs.save_to_dir, exist_ok=True)
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
@@ -283,19 +289,54 @@ else:
                         batch_size=modelArgs.batch_size,
                         checkpoint_every=modelArgs.checkpoint_every,
                         print_every=modelArgs.print_every,
-                        expt_dir=modelArgs.expt_dir)
+                        expt_dir=modelArgs.expt_dir,
+                        debug=modelArgs.debug,
+                        profile=modelArgs.profile,
+                        )
 
-    h2hModel = t.train(h2hModel, train,
-                      num_epochs=modelArgs.epochs,
-                      dev_data=dev,
-                      optimizer=optimizer,
-                      teacher_forcing_ratio=modelArgs.teacher_forcing_ratio,
-                      resume=modelArgs.resume,
-                      device=device)
+    h2hModel = t.train(h2hModel, modelArgs, train,
+                        dev_data=dev,
+                        optimizer=optimizer,
+                        device=device)
 
 predictor = Predictor(h2hModel, src.vocabs, tgt.vocab)
 
-while True:
-    seq_str = input("Type in a source sequence:")
-    seq = seq_str.strip().split()
-    print(predictor.predict(seq))
+test_data = Hier2HierDataset(
+    baseFolder=modelArgs.test_path,
+    fields = [('src', src), ('tgt', tgt)],
+)
+
+test_batch_iterator = torchtext.data.BucketIterator(
+    dataset=test_data, batch_size=1,
+    sort=False, #sort_within_batch=True,
+    #sort_key=lambda x: len(x.src),
+    device=device, repeat=False)
+
+for i, singleton_batch in enumerate(test_batch_iterator):
+    tree_inputs = singleton_batch.src
+    tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
+
+    try:
+        _, predicted_text_outputs = h2hModel(singleton_batch.src)
+        predicted_text_outputs = h2hModel.decodeOutput(predicted_text_outputs)
+    except ValueError as v:
+        predicted_text_outputs = v
+
+    try:
+        expected_text_outputs, expected_text_lengths = singleton_batch.tgt
+        expected_text_outputs = h2hModel.decodeOutput(expected_text_outputs, expected_text_lengths)
+    except ValueError as v:
+        expected_text_outputs = v
+
+    print( ("\n"
+            + "Iteration {0}\n"
+            + "\tTree Input:\t\t{1}\n"
+            + "\tPredicted Output:\t{2}\n"
+            + "\tExpected Output:\t{3}\n"
+        ).format(
+            i,
+            tree_inputs,
+            predicted_text_outputs,
+            expected_text_outputs,
+        )
+    )

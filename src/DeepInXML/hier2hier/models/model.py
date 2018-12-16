@@ -10,6 +10,8 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
+from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile
+
 from .moduleBase import ModuleBase 
 from .nodeInfoEncoder import NodeInfoEncoder
 from .nodeInfoPropagator import NodeInfoPropagator
@@ -28,7 +30,8 @@ class Hier2hier(ModuleBase):
             device=None):
         super().__init__(device)
 
-        self.modelArgs = modelArgs
+        self.max_output_len = modelArgs.max_output_len
+        self.outputVocab = outputVocab
         self.nodeInfoEncoder = NodeInfoEncoder(
             tagsVocab,
             textVocab,
@@ -57,18 +60,22 @@ class Hier2hier(ModuleBase):
             modelArgs.max_output_len,
             sos_id,
             eos_id,
+            modelArgs.teacher_forcing_ratio,
             modelArgs.input_dropout_p,
             modelArgs.dropout_p,
             modelArgs.use_attention,
             device=device,
             )
-        super().cuda(device)
+        if device is not None:
+            super().cuda(device)
+        else:
+            super().cpu()
 
+    @methodProfiler
     def forward(self,
             xmlTreeList,
             targetOutput=None,
             target_lengths=None,
-            teacher_forcing_ratio=0,
             tensorboard_hook=None):
         node2Index = {}
         node2Parent = {}
@@ -112,3 +119,38 @@ class Hier2hier(ModuleBase):
             tensorboard_hook.add_histogram('outputSymbolTensors', outputSymbolTensors) 
 
         return outputSymbolTensors, outputSymbols
+
+    @methodProfiler
+    def decodeOutput(self, textOutputs, textLengths=None):
+        decodedOutputs = []
+        sos_id = self.outputDecoder.sos_id
+        eos_id = self.outputDecoder.eos_id
+
+        for index, textOutput in enumerate(textOutputs):
+            textLength = textLengths[index] if textLengths is not None else self.max_output_len
+            if textOutput[0] != sos_id:
+                raise ValueError("sos_id missing at index 0.")
+            if textLengths is not None:
+                if textOutput[int(textLengths[index])-1] != eos_id:
+                    raise ValueError("eos_id missing at end index {0}.".format(textLengths[index]))
+
+                indexRange = range(1, textLength[index])
+            else:
+                indexRange = range(1, self.max_output_len)
+
+            decodedOutput = ""
+            foundEos = False
+
+            for textIndex in indexRange:
+                if textOutput[textIndex] == eos_id:
+                    foundEos = True
+                    break
+                decodedOutput += self.outputVocab.itos[textOutput[textIndex]]
+
+            if not foundEos:
+                decodedOutput += "..."
+            decodedOutputs.append(decodedOutput)
+
+        return decodedOutputs
+
+

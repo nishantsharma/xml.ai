@@ -4,21 +4,21 @@ from torch.autograd import Variable
 
 class Predictor(object):
 
-    def __init__(self, model, src_vocab, tgt_vocab):
+    def __init__(self, model, src_vocabs, tgt_vocab):
         """
         Predictor class to evaluate for a given model.
         Args:
-            model (seq2seq.models): trained model. This can be loaded from a checkpoint
-                using `seq2seq.util.checkpoint.load`
-            src_vocab (seq2seq.dataset.vocabulary.Vocabulary): source sequence vocabulary
-            tgt_vocab (seq2seq.dataset.vocabulary.Vocabulary): target sequence vocabulary
+            model (hier2hier.models): trained model. This can be loaded from a checkpoint
+                using `hier2hier.util.checkpoint.load`
+            src_vocab (hier2hier.dataset.vocabulary.Vocabulary): source sequence vocabulary
+            tgt_vocab (hier2hier.dataset.vocabulary.Vocabulary): target sequence vocabulary
         """
         if torch.cuda.is_available():
             self.model = model.cuda()
         else:
             self.model = model.cpu()
         self.model.eval()
-        self.src_vocab = src_vocab
+        self.src_vocabs = src_vocabs
         self.tgt_vocab = tgt_vocab
 
     def get_decoder_features(self, src_seq):
@@ -31,7 +31,7 @@ class Predictor(object):
 
         return other
 
-    def predict(self, src_seq):
+    def predict(self, src_trees):
         """ Make prediction given `src_seq` as input.
 
         Args:
@@ -41,13 +41,13 @@ class Predictor(object):
             tgt_seq (list): list of tokens in target language as predicted
             by the pre-trained model
         """
-        other = self.get_decoder_features(src_seq)
+        _, outputSymbolsList = self.model(src_trees)
 
-        length = other['length'][0]
-
-        tgt_id_seq = [other['sequence'][di][0].data[0] for di in range(length)]
-        tgt_seq = [self.tgt_vocab.itos[tok] for tok in tgt_id_seq]
-        return tgt_seq
+        tgt_outputs = [
+            [self.tgt_vocab.itos[tok] for tok in outputSymbols]
+            for outputSymbols in outputSymbolsList
+        ]
+        return tgt_outputs
 
     def predict_n(self, src_seq, n=1):
         """ Make 'n' predictions given `src_seq` as input.
