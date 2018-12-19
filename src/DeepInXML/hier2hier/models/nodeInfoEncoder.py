@@ -23,6 +23,16 @@ class TagEncoder(ModuleBase):
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
 
+    @property
+    def output_vec_len(self):
+        return len(self.tagsVocab)
+
+    @torch.no_grad()
+    def test_forward_one(self, tag):
+        return torch.tensor([
+            onehotencode(len(self.tagsVocab), self.tagsVocab.stoi[tag])],
+            device=self.device)
+
     @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         allTreeCodes = []
@@ -34,10 +44,6 @@ class TagEncoder(ModuleBase):
             allTreeCodes.append(treeCode)
 
         return torch.tensor(allTreeCodes, device=self.device)
-
-    @property
-    def output_vec_len(self):
-        return len(self.tagsVocab)
 
 class NodeTextEncoder(EncoderRNN):
     def __init__(self, textVocab, max_node_count, max_node_text_len, node_text_vec_len, device=None):
@@ -53,13 +59,24 @@ class NodeTextEncoder(EncoderRNN):
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
 
+    @torch.no_grad()
+    def test_forward_one(self, text):
+        # Expand current text as a list.
+        curTextAsList = [self.textVocab.stoi[ch] for ch in text]
+        textTensor = torch.tensor([curTextAsList], dtype=torch.long, device=self.device)
+        textLengthsTensor = torch.tensor([len(curTextAsList)], dtype=torch.long, device=self.device)
+
+        # Encode.
+        _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
+        return encodedTextVec[0]
+
     @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
         maxLen = -1
         allText = []
         for treeIndex, xmlTree in enumerate(xmlTreeList):
             for nodeIndex, node in enumerate(xmlTree.iter()):
-                allText.append((treeIndex, nodeIndex, node.text))
+                allText.append((treeIndex, nodeIndex, node.text ))
 
         # Sort all text according to length, largest first.
         allTextLengthSorted = sorted(allText, key=lambda x: - len(x[2]))
@@ -106,10 +123,11 @@ class NodeTextEncoder(EncoderRNN):
             treeTextEncoded += [zeroPaddingNodeVec] * (self.max_node_count - len(treeTextEncoded))
             treeTextEncoded = torch.cat(treeTextEncoded).view(1, self.max_node_count, self.node_text_vec_len)
             allTextEncoded.append(treeTextEncoded)
+
         allTextEncoded = torch.cat(allTextEncoded)
 
         return allTextEncoded
-
+    
 class AttribsEncoder(ModuleBase):
     def __init__(self, attribsVocab, attribValueEncoder, max_node_count, device=None):
         super().__init__(device)
@@ -120,6 +138,20 @@ class AttribsEncoder(ModuleBase):
     @property
     def output_vec_len(self):
         return len(self.attribsVocab) * self.attribValueEncoder.output_vec_len[1]
+
+    @torch.no_grad()
+    def test_forward_one(self, attribs):
+        attrVecLen = self.attribValueEncoder.hidden_size
+        attrCount = len(self.attribsVocab)
+        zeroAttrib = torch.zeros(1, attrVecLen, device=self.device)
+        retval = [zeroAttrib for _ in range(attrCount)]
+        for attribName, attribValue in attribs.items():
+            attribVec = self.attribValueEncoder(attribValue)
+            attribIndex = self.attribsVocab.stoi[attribName]
+            retval[attribIndex] = attribVec
+
+        retval = torch.cat(retval)
+        return retval
 
     @methodProfiler
     def forward(self, node2Index, node2Parent, xmlTreeList):
@@ -163,6 +195,7 @@ class NodeInfoEncoder(ModuleBase):
             attrib_value_vec_len,
             device=None):
         super().__init__(device)
+        self.max_node_count = max_node_count
 
         # Build component encoders.
         self.tagsEncoder = TagEncoder(tagsVocab, max_node_count, device=device)
@@ -183,6 +216,7 @@ class NodeInfoEncoder(ModuleBase):
                 self.attribValueEncoder,
                 max_node_count,
                 device=device)
+        self.max_node_count = max_node_count
 
     @property
     def output_vec_len(self):
@@ -190,6 +224,30 @@ class NodeInfoEncoder(ModuleBase):
         retval += self.tagsEncoder.output_vec_len
         retval += self.nodeTextEncoder.output_vec_len[1]
         retval += self.attribsEncoder.output_vec_len
+        return retval
+
+    @torch.no_grad()
+    def test_forward(self, node2Index, node2Parent, xmlTreeList):
+        tagVecLen = self.tagsEncoder.output_vec_len
+        nodeTextVecLen = self.nodeTextEncoder.output_vec_len
+        attribsVecLen = self.attribsEncoder.output_vec_len
+
+        retval = []
+        for xmlTree in xmlTreeList:
+            treeTensor = torch.zeros(1, self.max_node_count, self.output_vec_len)
+
+            for node in xmlTree.iter():
+                nodeIndex = node2Index[node]
+                treeTensor[0, nodeIndex, ...] = torch.cat(
+                    [
+                        self.tagsEncoder.test_forward_one(node.tag),
+                        self.nodeTextEncoder.test_forward_one(node.text),
+                        self.attribsEncoder.test_forward_one(node.attrib),
+                    ],
+                    -1
+                )
+            retval.append(treeTensor)
+        retval = torch.cat(retval)
         return retval
 
     @methodProfiler

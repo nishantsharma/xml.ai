@@ -49,7 +49,7 @@ class EncoderRNN(BaseRNN):
     """
     def __init__(self, vocab_size, max_len, input_size, hidden_size,
             input_dropout_p=0, dropout_p=0, n_layers=1, bidirectional=False, rnn_cell="gru", variable_lengths=False,
-            embedding=None, update_embedding=True, device=None):
+            embedding=None, update_embedding=False, device=None):
         super().__init__(vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, device)
         
         self.input_size = input_size
@@ -61,7 +61,9 @@ class EncoderRNN(BaseRNN):
             self.embedding.weight.requires_grad = update_embedding
             self.rnn_input_size = input_size
         else:
-            self.embedding = nn.Embedding(vocab_size, input_size)
+            self.embedding = None
+            self.vocab = torch.eye(vocab_size)
+
             self.rnn_input_size = vocab_size
         self.rnn = self.rnn_cell(self.rnn_input_size, hidden_size, n_layers,
                                 batch_first=True, bidirectional=bidirectional, dropout=dropout_p)
@@ -84,7 +86,7 @@ class EncoderRNN(BaseRNN):
             - **hidden** (num_layers * num_directions, batch, hidden_size): variable containing the features in the       hidden state h
         """
         # Embed the input(s).
-        embedded = input_var if self.embedding is None else self.embedding(input_var)
+        embedded = self.vocab[input_var] if self.embedding is None else self.embedding(input_var)
         
         # Dropout some of the inputs, when configured.
         embedded = self.input_dropout(embedded)

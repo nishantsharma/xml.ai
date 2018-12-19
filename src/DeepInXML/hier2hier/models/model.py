@@ -18,6 +18,7 @@ from .nodeInfoPropagator import NodeInfoPropagator
 from .outputDecoder import OutputDecoder
 
 class Hier2hier(ModuleBase):
+    n = 0
     def __init__(self,
             modelArgs,
             tagsVocab,
@@ -32,6 +33,8 @@ class Hier2hier(ModuleBase):
 
         self.max_output_len = modelArgs.max_output_len
         self.outputVocab = outputVocab
+        self.debug = modelArgs.debug
+
         self.nodeInfoEncoder = NodeInfoEncoder(
             tagsVocab,
             textVocab,
@@ -65,6 +68,7 @@ class Hier2hier(ModuleBase):
             modelArgs.dropout_p,
             modelArgs.use_attention,
             device=device,
+            runtests=self.debug.runtests
             )
         if device is not None:
             super().cuda(device)
@@ -111,12 +115,43 @@ class Hier2hier(ModuleBase):
 
         nodeInfoTensor = self.nodeInfoEncoder(node2Index, node2Parent, xmlTreeList)
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
-        outputSymbolTensors, outputSymbols = self.outputDecoder(treeIndex2NodeIndex2NbrIndices, nodeInfoPropagatedTensor, targetOutput, target_lengths)
+        (
+            outputSymbolTensors,
+            outputSymbols,
+            teacherForcedSelections,
+            decoderTestTensors
+        ) = self.outputDecoder(
+            treeIndex2NodeIndex2NbrIndices,
+            nodeInfoPropagatedTensor,
+            targetOutput,
+            target_lengths)
 
-        if tensorboard_hook is not None:
+        if self.debug.tensorboard:
             tensorboard_hook.add_histogram('nodeInfoTensor', nodeInfoTensor) 
             tensorboard_hook.add_histogram('nodeInfoPropagatedTensor', nodeInfoPropagatedTensor) 
             tensorboard_hook.add_histogram('outputSymbolTensors', outputSymbolTensors) 
+
+        if self.debug.runtests:
+            nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)
+            nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
+            decoderTestTensors2  = self.outputDecoder.test_forward(
+                treeIndex2NodeIndex2NbrIndices,
+                nodeInfoPropagatedTensor,
+                targetOutput,
+                target_lengths,
+                teacherForcedSelections)
+
+        if self.debug.runtests:
+            diffSum1 = float(torch.sum(abs(nodeInfoTensor2-nodeInfoTensor).view(-1)))
+            diffSum2 = float(torch.sum(abs(nodeInfoPropagatedTensor2-nodeInfoPropagatedTensor).view(-1)))
+            diffSum3 = float(torch.sum(abs(decoderTestTensors2-decoderTestTensors).view(-1)))
+
+            print("{0}: diffSums {1:.6f}, {2:.6f}, {3:.6f}".format(
+                Hier2hier.n, diffSum1, diffSum2, diffSum3))
+            if Hier2hier.n % 100 == 99:
+                import pdb;pdb.set_trace()
+
+            Hier2hier.n += 1
 
         return outputSymbolTensors, outputSymbols
 
@@ -134,7 +169,7 @@ class Hier2hier(ModuleBase):
                 if textOutput[int(textLengths[index])-1] != eos_id:
                     raise ValueError("eos_id missing at end index {0}.".format(textLengths[index]))
 
-                indexRange = range(1, textLength[index])
+                indexRange = range(1, int(textLength[index]))
             else:
                 indexRange = range(1, self.max_output_len)
 

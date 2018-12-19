@@ -54,12 +54,16 @@ parser.add_argument('--log-level', dest='log_level',
 parser.add_argument("--save_to_dir",
                     type=str, default="../../output/",
                     help="Target directory where all output is saved.")
-parser.add_argument("--debug",
+
+parser.add_argument("--tensorboard",
                     type=str2bool, default=False,
-                    help="Set to true to enable debug mode.")
+                    help="Set to true to enable dumping for tensorboard.")
 parser.add_argument("--profile",
                     type=str2bool, default=False,
                     help="Set to true to enable profiling info printing mode.")
+parser.add_argument("--runtests",
+                    type=str2bool, default=False,
+                    help="Set to true to enable unit testing of components.")
 
 # Build training args needed during training and also inference.
 parser.add_argument("--epochs", type = int, default = 400,
@@ -100,7 +104,7 @@ parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 
                     + "hops that information would propagate in the graph inside nodeInfoPropagator.")
 parser.add_argument("--propagated_info_len", type = int, default = 64,
                     help="Length of node information vector, when being propagated.")
-parser.add_argument("--output_decoder_stack_depth", type = int, default = 7,
+parser.add_argument("--output_decoder_stack_depth", type = int, default = 3,
                     help="Stack depth of node decoder.")
 parser.add_argument("--output_decoder_state_width", type = int, default = 32,
                     help="Width of GRU cell in output decoder.")
@@ -119,6 +123,11 @@ modelArgs = parser.parse_args()
 modelArgs.dev_path = modelArgs.data_path + "dev/"
 modelArgs.test_path = modelArgs.data_path + "test/"
 modelArgs.train_path = modelArgs.data_path + "train/"
+debugArgs = AttrDict()
+for debugAttr in ["tensorboard", "profile", "runtests"]:
+    setattr(debugArgs, debugAttr, getattr(modelArgs, debugAttr))
+    delattr(modelArgs, debugAttr)
+modelArgs.debug = debugArgs
 
 os.makedirs(modelArgs.save_to_dir, exist_ok=True)
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
@@ -165,10 +174,10 @@ def updateModelArgsFromData(dataset, modelArgs):
                 maxNodeTextLen = max(maxNodeTextLen, len(node.text))
 
         # Process output.
-        outputTextList = getattr(batch, hier2hier.tgt_field_name)
-        for outputText in outputTextList:
-            maxOutputLen = max(maxOutputLen, len(outputText))
-
+        _, outputLengths = getattr(batch, hier2hier.tgt_field_name)
+        for outputLength in outputLengths:
+            maxOutputLen = max(maxOutputLen, outputLength)
+    
     if modelArgs.num_samples is None:
         modelArgs.num_samples = len(dataset)
     elif modelArgs.num_samples < len(dataset):
@@ -259,9 +268,9 @@ else:
 
     h2hModel = None
     optimizer = None
+    updateModelArgsFromData(train, modelArgs)
     if not modelArgs.resume:
         # Initialize model
-        updateModelArgsFromData(train, modelArgs)
         h2hModel = Hier2hier(
             modelArgs,
             src.vocabs.tags,
@@ -274,6 +283,7 @@ else:
             device=device
             )
 
+
         for param in h2hModel.parameters():
             param.data.uniform_(-0.08, 0.08)
 
@@ -285,13 +295,12 @@ else:
         # optimizer.set_scheduler(scheduler)
 
     # train
-    t = SupervisedTrainer(loss=loss,
+    t = SupervisedTrainer(modelArgs.debug,
+                        loss=loss,
                         batch_size=modelArgs.batch_size,
                         checkpoint_every=modelArgs.checkpoint_every,
                         print_every=modelArgs.print_every,
                         expt_dir=modelArgs.expt_dir,
-                        debug=modelArgs.debug,
-                        profile=modelArgs.profile,
                         )
 
     h2hModel = t.train(h2hModel, modelArgs, train,

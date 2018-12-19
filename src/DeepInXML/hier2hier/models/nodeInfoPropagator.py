@@ -34,6 +34,11 @@ class NodeInfoPropagator(ModuleBase):
         # Neighbor info gate.
         self.gruCell = torch.nn.GRUCell(propagated_info_len, propagated_info_len)
 
+    @torch.no_grad()
+    def test_forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+        nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
+        return nodeInfoPropagated
+
     @methodProfiler
     def computeFanoutOrder(self, treeIndex2NodeIndex2NbrIndices):
         # For efficiency, we need to order nodes in the decreasing order of fanout.
@@ -86,6 +91,10 @@ class NodeInfoPropagator(ModuleBase):
 
     @methodProfiler
     def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+        sampleCount = len(nodeInfosTensor)
+        nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
+        return nodeInfoPropagated
+
         # For efficiency, we need to re-arrange nodes in nodeInfosTensor in the increasing
         # order of fanout.
         (
@@ -109,10 +118,6 @@ class NodeInfoPropagator(ModuleBase):
             selectorForParentInfos,
             selectorForChildrenInfoList,
         ) = self.computeNeighborSelectors(flatReOrderedIndexMap)
-
-        sampleCount = len(nodeInfosTensor)
-        nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
-        return nodeInfoPropagated
 
         # Get a flattened view of nodeInfoToPropagate. Flat view is easier to permute.
         nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount*self.max_node_count, self.propagated_info_len)

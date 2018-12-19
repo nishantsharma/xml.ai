@@ -1,5 +1,5 @@
 from __future__ import division
-import json, os, random, time, logging
+import json, os, random, time, logging, copy
 
 import torch
 import torchtext
@@ -25,10 +25,9 @@ class SupervisedTrainer(object):
         batch_size (int, optional): batch size for experiment, (default: 64)
         checkpoint_every (int, optional): number of batches to checkpoint after, (default: 100)
     """
-    def __init__(self, expt_dir='experiment', loss=NLLLoss(), batch_size=64,
+    def __init__(self, debug, expt_dir='experiment', loss=NLLLoss(), batch_size=64,
                  random_seed=None,
-                 checkpoint_every=100, print_every=100,
-                 debug=False, profile=False):
+                 checkpoint_every=100, print_every=100,):
         self._trainer = "Simple Trainer"
         self.random_seed = random_seed
         if random_seed is not None:
@@ -49,8 +48,8 @@ class SupervisedTrainer(object):
         self.logger = logging.getLogger(__name__)
 
         self.debug=debug
-        self.profile=profile
-        self.tensorBoardHook = TensorBoardHook(self.expt_dir, debug)
+        self.tensorBoardHook = TensorBoardHook(self.expt_dir, debug.tensorboard)
+        self.origValues = None
 
     @methodProfiler
     def _train_batch(self, input_variable, target_variable, target_lengths, model):
@@ -64,12 +63,19 @@ class SupervisedTrainer(object):
                                     tensorboard_hook=self.tensorBoardHook,
                                     )
 
+        if False:
+            oldValues = {}
+            for name, param in model.named_parameters():
+                oldValues[name] = copy.deepcopy(param.detach().numpy())
+
+            if self.origValues is None:
+                self.origValues = oldValues
+
         with blockProfiler("Batch Loss Calculation"):
             # Get loss
             loss.reset()
             n = target_variable.numel()
             loss.eval_batch(decoder_outputs.view(n, -1), target_variable.view(n,))
-
         with blockProfiler("Reset model gradient"):
             # Backward propagation
             model.zero_grad()
@@ -79,6 +85,20 @@ class SupervisedTrainer(object):
 
         with blockProfiler("Step optimizer"):
             self.optimizer.step()
+
+        # simport pdb;pdb.set_trace()
+
+        if False:
+            newValues = {}
+            for name, param in model.named_parameters():
+                newValues[name] = param.detach().numpy()
+
+            for name, param in model.named_parameters():
+                print(
+                        name, 
+                        abs(newValues[name]-oldValues[name]).sum(),
+                        abs(newValues[name]-self.origValues[name]).sum()
+                    )
 
         with blockProfiler("Compute loss"):
             return loss.get_loss()
@@ -131,7 +151,7 @@ class SupervisedTrainer(object):
                 target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
 
                 loss = self._train_batch(input_variables, target_variables, target_lengths, model)
-                if self.profile:
+                if self.debug.profile:
                     print("Profiling info:")
                     print(json.dumps(lastCallProfile(True), indent=2))
 
@@ -206,11 +226,13 @@ class SupervisedTrainer(object):
             model.set_device(device)
             self.optimizer = resume_checkpoint.optimizer
 
-
             # Some parameters, loaded from checkpoint, may be overridden in the command line.
             model.max_output_len = newModelArgs.max_output_len
+            model.nodeInfoEncoder.max_node_count = newModelArgs.max_node_count
             model.outputDecoder.max_output_len = newModelArgs.max_output_len
             model.outputDecoder.teacher_forcing_ratio = newModelArgs.teacher_forcing_ratio
+            model.outputDecoder.runtests = newModelArgs.debug.runtests
+            model.debug = newModelArgs.debug
 
             # A walk around to set optimizing parameters properly
             resume_optim = self.optimizer.optimizer
