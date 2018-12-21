@@ -18,7 +18,7 @@ class Evaluator(object):
         self.loss = loss
         self.batch_size = batch_size
 
-    def evaluate(self, model, data):
+    def evaluate(self, model, device, data):
         """ Evaluate a model on given dataset and return performance.
 
         Args:
@@ -35,7 +35,6 @@ class Evaluator(object):
         match = 0
         total = 0
 
-        device = None if torch.cuda.is_available() else -1
         batch_iterator = torchtext.data.BucketIterator(
             dataset=data, batch_size=self.batch_size,
             sort=False, # sort_key=lambda x: len(x.src),

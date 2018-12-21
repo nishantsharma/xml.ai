@@ -62,7 +62,7 @@ class EncoderRNN(BaseRNN):
             self.rnn_input_size = input_size
         else:
             self.embedding = None
-            self.vocab = torch.eye(vocab_size)
+            self.vocab = torch.eye(vocab_size, device=device)
 
             self.rnn_input_size = vocab_size
         self.rnn = self.rnn_cell(self.rnn_input_size, hidden_size, n_layers,

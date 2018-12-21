@@ -241,7 +241,7 @@ class OutputDecoder(BaseRNN):
                 # Obtain trees in the decreasing targetOutput size order.
                 targetLengthsOrder = list(range(len(targetOutput)))
                 targetLengthsOrder.sort(key=lambda i:-targetLengths[i])
-                targetLengthsOrder = torch.tensor(targetLengthsOrder, dtype=torch.long)
+                targetLengthsOrder = torch.tensor(targetLengthsOrder, dtype=torch.long, device=self.device)
 
                 nodeInfoPropagatedTensor = torch.index_select(
                     nodeInfoPropagatedTensor,
@@ -252,7 +252,9 @@ class OutputDecoder(BaseRNN):
                 targetLengths = torch.index_select(targetLengths, 0, targetLengthsOrder)
                 targetLengthsOrderInverse = torch.tensor(
                     invertPermutation(targetLengthsOrder),
-                    dtype=torch.long)
+                    dtype=torch.long,
+                    device=self.device,
+                )
                 dimSqueezePoints = self.computeDimSqueezePoints(targetLengths)
             else:
                 targetLengthsOrderInverse = torch.tensor(
@@ -297,8 +299,6 @@ class OutputDecoder(BaseRNN):
                 for n in range(sampleCount)
             ]
 
-            print("Dim Squeeze points", dimSqueezePoints)
-
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
                 if nodeInfoPropagatedTensor.shape[0] != sampleIndexLimit:
@@ -316,7 +316,8 @@ class OutputDecoder(BaseRNN):
                         n + teacherForcedSelections[n] * sampleIndexLimit
                         for n in range(sampleIndexLimit)
                     ],
-                    dtype=torch.long
+                    dtype=torch.long,
+                    device=self.device,
                 )
 
                 while True:
