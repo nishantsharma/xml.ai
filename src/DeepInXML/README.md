@@ -2,12 +2,13 @@
 
 **[Documentation]**
 
-This is a framework for XML-to-XML (hier2hier) models implemented in [PyTorch](http://pytorch.org).  The framework has modularized and extensible components for hier2hier models, training and inference, checkpoints, etc.  This is an alpha release. We appreciate any kind of feedback or contribution.
+This is a framework for XML-to-XML (hier2hier) models implemented in [PyTorch](http://pytorch.org).  The framework
+has modularized and extensible components for hier2hier models, training and inference, checkpoints, etc.  This is an
+alpha release. We appreciate any kind of feedback or contribution.
 
 # What's New in 0.0.1
 
 * Compatible with PyTorch 0.4
-* Added support for pre-trained word embedding
 
 # Roadmap
 Hier2hier is an upcoming area.  The goal of this library is facilitating the development of such techniques and applications.  While constantly improving the quality of code and documentation, we will focus on the following items:
@@ -21,34 +22,48 @@ This package requires Python 3.6. We recommend creating a new virtual environmen
 
 ### Prerequisites
 
-* Numpy: `pip install numpy` (Refer [here](https://github.com/numpy/numpy) for problem installing Numpy).
-* PyTorch: Refer to [PyTorch website](http://pytorch.org/) to install the version w.r.t. your environment.
+* Install python. On Ubuntu,
+  $ sudo apt install python36
+  $ sudo port install python36
+  $ sudo port install py36-pip
+  $ sudo port select --set pip pip36
+  $ sudo port select --set python python36
+
+* Install all python packages mentioned in requirements.txt. 
+  $ sudo pip install -r requirements.txt
+
 
 ### Install from source
-Currently we only support installation from source code using setuptools.  Checkout the source code and run the following commands:
 
-    pip install -r requirements.txt
-    python setup.py install
-
-If you already had a version of PyTorch installed on your system, please verify that the active torch package is at least version 0.1.11.
+System level installation not yet supported.
 
 # Get Started
 ### Prepare toy dataset
+Run script to generate the reverse toy dataset.
+The generated data is stored in data/toy_reverse by default
+    ./scripts/generate.sh toy1
+    ./scripts/generate.sh toy2
 
-	# Run script to generate the reverse toy dataset
-    # The generated data is stored in data/toy_reverse by default
-	./scripts/toy.sh
+### Train
+To continue last training run. 
+    ./scripts/train.sh
 
-### Train and play
-	TRAIN_PATH=data/toy_reverse/train/
-	DEV_PATH=data/toy_reverse/dev/
-	# Start training
-    python examples/sample.py --train_path $TRAIN_PATH --dev_path $DEV_PATH
+To continue last training run for a specific domain. 
+    ./scripts/train.sh --domain toy1
+    ./scripts/train.sh --domain toy2
 
-It will take about 3 minutes to train on CPU and less than 1 minute with a Tesla K80.  Once training is complete, you will be prompted to enter a new sequence to translate and the model will print out its prediction (use ctrl-C to terminate).  Try the example below!
+For help.
+    ./scripts/train.sh -h
 
-    Input:  1 3 5 7 9
-	Expected output: 9 7 5 3 1 EOS
+### Evaluate  
+To evalaute latest trained domain. 
+    ./scripts/evaluate.sh
+
+To evaluate on domain toy1.
+    ./scripts/evaluate.sh --domain toy1
+
+For help.
+    ./scripts/evaluate.sh -h
 
 ### Checkpoints
 Checkpoints are organized by experiments and timestamps as shown in the following file structure

@@ -1,5 +1,5 @@
 from __future__ import print_function
-import os, time, shutil, glob
+import os, time, shutil, glob, json
 from orderedattrdict import AttrDict
 
 import torch
@@ -35,15 +35,17 @@ class Checkpoint(object):
     INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
     OUTPUT_VOCAB_FILE = 'output_vocab.pt'
 
-    def __init__(self, model, optimizer, epoch, step, batch_size, input_vocabs, output_vocab, path=None):
+    def __init__(self, model, optimizer, loss, epoch, step, batch_size, input_vocabs, output_vocab, modelArgs):
         self.model = model
         self.optimizer = optimizer
+        self.loss = loss
         self.input_vocabs = input_vocabs
         self.output_vocab = output_vocab
         self.epoch = epoch
         self.step = step
         self.batch_size = batch_size
-        self._path = path
+        self.modelArgs = modelArgs
+        self._path = None
 
     @property
     def path(self):
@@ -51,7 +53,7 @@ class Checkpoint(object):
             raise LookupError("The checkpoint has not been saved.")
         return self._path
 
-    def save(self, experiment_dir):
+    def save(self, path):
         """
         Saves the current model and related training parameters into a subdirectory of the checkpoint directory.
         The name of the subdirectory is the current local time in Y_M_D_H_M_S format.
@@ -60,21 +62,20 @@ class Checkpoint(object):
         Returns:
              str: path to the saved checkpoint subdirectory
         """
-        date_time = time.strftime('%Y_%m_%d_%H_%M_%S', time.localtime())
-
-        self._path = os.path.join(experiment_dir, self.CHECKPOINT_DIR_NAME, date_time)
-        path = self._path
+        self._path = path
 
         if os.path.exists(path):
             shutil.rmtree(path)
         os.makedirs(path)
-        torch.save({'epoch': self.epoch,
-                    'step': self.step,
-                    'batch_size': self.batch_size,
-                    'optimizer': self.optimizer
+        torch.save({'batch_size': self.batch_size,
+                    'optimizer': self.optimizer,
+                    'loss': self.loss,
                    },
                    os.path.join(path, self.TRAINER_STATE_NAME))
         torch.save(self.model, os.path.join(path, self.MODEL_NAME))
+
+        with open(os.path.join(path, "modelArgs"), 'w') as fout:
+            json.dump(self.modelArgs, fout, indent=2)
 
         for input_vocab_key, input_vocab in self.input_vocabs.items():
             with open(os.path.join(path, self.INPUT_VOCABS_FILE.format(input_vocab_key)), 'wb') as fout:
@@ -85,7 +86,7 @@ class Checkpoint(object):
         return path
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path, modelArgs=None):
         """
         Loads a Checkpoint object that was previously saved to disk.
         Args:
@@ -100,6 +101,11 @@ class Checkpoint(object):
             resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=lambda storage, loc: storage)
             model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=lambda storage, loc: storage)
 
+
+        # Extract epoch and step.
+        checkpointFolder = os.path.basename(path[0:-1])
+        stepDotEpochStr = checkpointFolder[len("Chk"):]
+        epoch, step = [int(item) for item in stepDotEpochStr.split(".")]
 
         # model.flatten_parameters() # make RNN parameters contiguous
         input_vocab_files = glob.glob(os.path.join(path, cls.INPUT_VOCABS_FILE).replace("{0}", "*"))
@@ -117,14 +123,21 @@ class Checkpoint(object):
             output_vocab = dill.load(fin)
         model.outputVocab = output_vocab
 
+        modelArgsPath = os.path.join(path, "modelArgs")
+        if os.path.exists(modelArgsPath):
+            with open(modelArgsPath, 'r') as fin:
+                modelArgs = AttrDict(json.load(fin))
+
         optimizer = resume_checkpoint['optimizer']
+        loss = resume_checkpoint['loss']
         return Checkpoint(model=model, input_vocabs=input_vocabs,
                           output_vocab=output_vocab,
                           optimizer=optimizer,
-                          epoch=resume_checkpoint['epoch'],
-                          step=resume_checkpoint['step'],
+                          loss=loss,
+                          epoch=epoch,
+                          step=step,
                           batch_size=resume_checkpoint.get('batch_size', 100),
-                          path=path)
+                          modelArgs=modelArgs)
 
     @classmethod
     def get_latest_checkpoint(cls, experiment_path):

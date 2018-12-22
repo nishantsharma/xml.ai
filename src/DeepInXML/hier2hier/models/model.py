@@ -17,10 +17,13 @@ from .nodeInfoEncoder import NodeInfoEncoder
 from .nodeInfoPropagator import NodeInfoPropagator
 from .outputDecoder import OutputDecoder
 
+curSchemaVersion = 0
+
 class Hier2hier(ModuleBase):
     n = 0
     def __init__(self,
             modelArgs,
+            debug,
             tagsVocab,
             textVocab,
             attribsVocab,
@@ -33,7 +36,7 @@ class Hier2hier(ModuleBase):
 
         self.max_output_len = modelArgs.max_output_len
         self.outputVocab = outputVocab
-        self.debug = modelArgs.debug
+        self.debug = debug
 
         self.nodeInfoEncoder = NodeInfoEncoder(
             tagsVocab,
@@ -80,7 +83,7 @@ class Hier2hier(ModuleBase):
             xmlTreeList,
             targetOutput=None,
             target_lengths=None,
-            tensorboard_hook=None):
+            ):
         node2Index = {}
         node2Parent = {}
         treeIndex2NodeIndex2NbrIndices = {}
@@ -126,11 +129,6 @@ class Hier2hier(ModuleBase):
             targetOutput,
             target_lengths)
 
-        if self.debug.tensorboard:
-            tensorboard_hook.add_histogram('nodeInfoTensor', nodeInfoTensor) 
-            tensorboard_hook.add_histogram('nodeInfoPropagatedTensor', nodeInfoPropagatedTensor) 
-            tensorboard_hook.add_histogram('outputSymbolTensors', outputSymbolTensors) 
-
         if self.debug.runtests:
             nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)
             nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
@@ -141,7 +139,6 @@ class Hier2hier(ModuleBase):
                 target_lengths,
                 teacherForcedSelections)
 
-        if self.debug.runtests:
             diffSum1 = float(torch.sum(abs(nodeInfoTensor2-nodeInfoTensor).view(-1)))
             diffSum2 = float(torch.sum(abs(nodeInfoPropagatedTensor2-nodeInfoPropagatedTensor).view(-1)))
             diffSum3 = float(torch.sum(abs(decoderTestTensors2-decoderTestTensors).view(-1)))
@@ -154,38 +151,3 @@ class Hier2hier(ModuleBase):
             Hier2hier.n += 1
 
         return outputSymbolTensors, outputSymbols
-
-    @methodProfiler
-    def decodeOutput(self, textOutputs, textLengths=None):
-        decodedOutputs = []
-        sos_id = self.outputDecoder.sos_id
-        eos_id = self.outputDecoder.eos_id
-
-        for index, textOutput in enumerate(textOutputs):
-            textLength = textLengths[index] if textLengths is not None else self.max_output_len
-            if textOutput[0] != sos_id:
-                raise ValueError("sos_id missing at index 0.")
-            if textLengths is not None:
-                if textOutput[int(textLengths[index])-1] != eos_id:
-                    raise ValueError("eos_id missing at end index {0}.".format(textLengths[index]))
-
-                indexRange = range(1, int(textLength[index]))
-            else:
-                indexRange = range(1, self.max_output_len)
-
-            decodedOutput = ""
-            foundEos = False
-
-            for textIndex in indexRange:
-                if textOutput[textIndex] == eos_id:
-                    foundEos = True
-                    break
-                decodedOutput += self.outputVocab.itos[textOutput[textIndex]]
-
-            if not foundEos:
-                decodedOutput += "..."
-            decodedOutputs.append(decodedOutput)
-
-        return decodedOutputs
-
-

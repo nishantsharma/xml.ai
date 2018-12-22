@@ -4,7 +4,6 @@ import unicodedata
 import string
 import re
 import random
-from orderedattrdict import AttrDict
 from sortedcontainers import SortedDict, SortedSet
 
 import torch
@@ -127,7 +126,7 @@ class NodeTextEncoder(EncoderRNN):
         allTextEncoded = torch.cat(allTextEncoded)
 
         return allTextEncoded
-    
+
 class AttribsEncoder(ModuleBase):
     def __init__(self, attribsVocab, attribValueEncoder, max_node_count, device=None):
         super().__init__(device)

@@ -1,14 +1,18 @@
 from __future__ import division
 import json, os, random, time, logging, copy
 
+from orderedattrdict import AttrDict as SortedAttrDict
+
 import torch
 import torchtext
 from torch import optim
 
 import hier2hier
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
 from hier2hier.evaluator import Evaluator
-from hier2hier.loss import NLLLoss
+from hier2hier.loss import NLLLoss, Perplexity
 from hier2hier.optim import Optimizer
+from hier2hier.models import Hier2hier
 from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util.tensorboard import TensorBoardHook
@@ -25,132 +29,341 @@ class SupervisedTrainer(object):
         batch_size (int, optional): batch size for experiment, (default: 64)
         checkpoint_every (int, optional): number of batches to checkpoint after, (default: 100)
     """
-    def __init__(self, debug, expt_dir='experiment', loss=NLLLoss(), batch_size=64,
-                 random_seed=None,
-                 checkpoint_every=100, print_every=100,):
-        self._trainer = "Simple Trainer"
-        self.random_seed = random_seed
-        if random_seed is not None:
-            random.seed(random_seed)
-            torch.manual_seed(random_seed)
-        self.loss = loss
-        self.evaluator = Evaluator(loss=self.loss, batch_size=batch_size)
-        self.optimizer = None
-        self.checkpoint_every = checkpoint_every
-        self.print_every = print_every
+    def __init__(self, appConfig, modelArgs, device):
+        # Save configuration info.
+        self.appConfig = appConfig
+        self.modelArgs = modelArgs
+        self.device = device
 
-        if not os.path.isabs(expt_dir):
-            expt_dir = os.path.join(os.getcwd(), expt_dir)
-        self.expt_dir = expt_dir
-        if not os.path.exists(self.expt_dir):
-            os.makedirs(self.expt_dir)
+        # Apply random seed.
+        self.random_seed = appConfig.random_seed
+        if appConfig.random_seed is not None:
+            random.seed(appConfig.random_seed)
+            torch.manual_seed(appConfig.random_seed)
 
+        if not os.path.exists(self.appConfig.training_dir):
+            os.makedirs(self.appConfig.training_dir)
+
+        # Save params.
+        self.debug = appConfig.debug
+        self.print_every = appConfig.print_every
+        self.checkpoint_every = appConfig.checkpoint_every
+        self.n_epochs = appConfig.epochs
+
+        # Logging.
         self.logger = logging.getLogger(__name__)
+        if self.debug.tensorboard:
+            self.tensorBoardHook = TensorBoardHook(self.appConfig.training_dir + self.appConfig.runFolder)
+        else:
+            self.tensorBoardHook = TensorBoardHook(None)
 
-        self.debug=debug
-        self.tensorBoardHook = TensorBoardHook(self.expt_dir, debug.tensorboard)
-        self.origValues = None
+        # Field objects contain vocabulary information(Vocab objects) which
+        # determines how to numericalize textual data.
+        self.fields = SortedAttrDict({"src": SourceField(), "tgt": TargetField(),})
+
+        self.model = None
+        self.optimizer = None
+        self.loss = None
+        self.evaluator = None
+
+    def load(self, training_data=None):
+        # Shortcuts.
+        log = self.logger
+        src = self.fields.src
+        tgt = self.fields.tgt
+        device = self.device
+        optimizer = self.optimizer
+        loss = self.loss
+        modelArgs = self.modelArgs
+
+        # If training is set to resume
+        if not self.appConfig.resume:
+            if training_data is None:
+                raise ValueError("Cannot create a new instance of trainer without training data.")
+
+            # Build vocabs.
+            src.build_vocabs(training_data, max_size=50000)
+            tgt.build_vocab(training_data, max_size=50000)
+
+            # Some of the settings in appConfig and modelArgs need to be deduced from
+            # training data. Doing it at creation time.
+            self.___updateModelArgsFromData(training_data)
+
+            # Batch counters.
+            start_epoch = 0
+            step = 0
+            batch_size = self.appConfig.batch_size
+
+            # Prepare model object.
+            model = Hier2hier(
+                self.modelArgs,
+                self.debug,
+                src.vocabs.tags,
+                src.vocabs.text,
+                src.vocabs.attribs,
+                src.vocabs.attribValues,
+                tgt.vocab,
+                tgt.sos_id,
+                tgt.eos_id,
+                device=device,
+                )
+
+            # Create optimizer.
+            if optimizer is None:
+                optimizer = Optimizer(optim.Adam(model.parameters()), max_grad_norm=5)
+
+            # Initialize model weights.
+            for param in model.parameters():
+                param.data.uniform_(-0.08, 0.08)
+        else:
+            checkpointFolder = "{0}{1}{2}/".format(
+                self.appConfig.training_dir,
+                self.appConfig.runFolder,
+                self.appConfig.checkpointFolder,
+                )
+            resume_checkpoint = Checkpoint.load(checkpointFolder, modelArgs=self.modelArgs)
+            src.vocabs = resume_checkpoint.input_vocabs
+            tgt.vocab = resume_checkpoint.output_vocab
+            tgt.sos_id = tgt.vocab.stoi["<sos>"]
+            tgt.eos_id = tgt.vocab.stoi["<eos>"]
+            model = resume_checkpoint.model
+            model.set_device(device)
+
+            optimizer = resume_checkpoint.optimizer
+
+            # We need to override almost all cmd line specified modelArgs with what we
+            # loaded from checkpoint. Some parameters, may also come from the command line.
+            # Edit modelArgs and use.
+            modelArgs = resume_checkpoint.modelArgs
+            if self.modelArgs.max_output_len is not None:
+                modelArgs.max_output_len = self.modelArgs.max_output_len
+            if self.modelArgs.max_output_len is not None:
+                modelArgs.max_node_count = self.modelArgs.max_node_count
+            if self.modelArgs.max_output_len is not None:
+                modelArgs.teacher_forcing_ratio = self.modelArgs.teacher_forcing_ratio
+            model.max_output_len = modelArgs.max_output_len
+            model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
+            model.outputDecoder.max_output_len = modelArgs.max_output_len
+            model.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
+            model.outputDecoder.runtests = self.debug.runtests
+            model.debug = self.debug
+
+            # A walk around to set optimizing parameters properly
+            resume_optim = optimizer.optimizer
+            defaults = resume_optim.param_groups[0]
+            defaults.pop('params', None)
+            defaults.pop('initial_lr', None)
+            optimizer.optimizer = resume_optim.__class__(model.parameters(), **defaults)
+
+            start_epoch = resume_checkpoint.epoch
+            step = resume_checkpoint.step
+            if (self.appConfig.batch_size != resume_checkpoint.batch_size):
+                log.warn("Changing batchsize from cmdline specified {0} to model specified {1}.".format(
+                    self.modelArgs.batch_size,
+                    resume_checkpoint.batch_size
+                ))
+                batch_size = resume_checkpoint.batch_size
+            else:
+                batch_size = resume_checkpoint.batch_size
+
+        # Prepare loss object.
+        if loss is None:
+            weight = torch.ones(len(tgt.vocab), device=device)
+            pad = tgt.vocab.stoi[tgt.pad_token]
+            loss = Perplexity(weight, pad, device=device)
+
+        self.model = model
+        self.optimizer = optimizer
+        self.loss = loss
+        self.batch_size = batch_size
+        self.step = step
+        self.epoch = start_epoch
+        self.modelArgs = modelArgs
+
+        # Evaluator helps monitor results during training iterations.
+        self.evaluator = Evaluator(loss=loss, batch_size=batch_size)
+
+        log.info("Final model arguments: {0}".format(json.dumps(self.modelArgs, indent=2)))
+        log.info("Optimizer: %s, Scheduler: %s" % (self.optimizer.optimizer, self.optimizer.scheduler))
+
+    def train(self, training_data, dev_data=None):
+        """ Run training for a given model.
+
+        Args:
+            training_dataset (hier2hier.dataset.dataset.Dataset): dataset object to train on
+            dev_dataset (hier2hier.dataset.dataset.Dataset, optional): dev Dataset (default None)
+        Returns:
+            None. The trained model (hier2hier.models) can be accessed using self.model.
+        """
+        if self.model is None:
+            self.load(training_data)
+
+        self._train_epochs(training_data, dev_data)
+        return self.model
 
     @methodProfiler
-    def _train_batch(self, input_variable, target_variable, target_lengths, model):
-        loss = self.loss
+    def decodeOutput(self, textOutputs, textLengths=None):
+        decodedOutputs = []
+        sos_id = self.fields.tgt.sos_id
+        eos_id = self.fields.tgt.eos_id
+        outputVocab = self.fields.tgt.vocab
+        max_output_len = self.modelArgs.max_output_len
 
-        with blockProfiler("Input Forward Propagation"):
-            # Forward propagation
-            decoder_outputs, _ = model(input_variable,
-                                    target_variable,
-                                    target_lengths,
-                                    tensorboard_hook=self.tensorBoardHook,
-                                    )
+        for index, textOutput in enumerate(textOutputs):
+            textLength = textLengths[index] if textLengths is not None else max_output_len
+            if textOutput[0] != sos_id:
+                raise ValueError("sos_id missing at index 0.")
+            if textLengths is not None:
+                if textOutput[int(textLengths[index])-1] != eos_id:
+                    raise ValueError("eos_id missing at end index {0}.".format(textLengths[index]))
 
-        if False:
-            oldValues = {}
-            for name, param in model.named_parameters():
-                oldValues[name] = copy.deepcopy(param.detach().numpy())
+                indexRange = range(1, int(textLength[index]))
+            else:
+                indexRange = range(1, max_output_len)
 
-            if self.origValues is None:
-                self.origValues = oldValues
+            decodedOutput = ""
+            foundEos = False
 
-        with blockProfiler("Batch Loss Calculation"):
-            # Get loss
-            loss.reset()
-            n = target_variable.numel()
-            loss.eval_batch(decoder_outputs.view(n, -1), target_variable.view(n,))
-        with blockProfiler("Reset model gradient"):
-            # Backward propagation
-            model.zero_grad()
+            for textIndex in indexRange:
+                if textOutput[textIndex] == eos_id:
+                    foundEos = True
+                    break
+                decodedOutput += outputVocab.itos[textOutput[textIndex]]
 
-        with blockProfiler("Loss Propagation Backward"):
-            loss.backward()
+            if not foundEos:
+                decodedOutput += "..."
+            decodedOutputs.append(decodedOutput)
 
-        with blockProfiler("Step optimizer"):
-            self.optimizer.step()
+        return decodedOutputs
 
-        # simport pdb;pdb.set_trace()
 
-        if False:
-            newValues = {}
-            for name, param in model.named_parameters():
-                newValues[name] = param.detach().numpy()
+    def ___updateModelArgsFromData(self, training_data):
+        """
+        total_attrs_count, value_symbols_count, max_node_count,
+        max_node_fanout, max_node_text_len, max_attrib_value_len,
+        max_output_len.
+        """
+        # Shortcuts.
+        appConfig = self.appConfig
+        modelArgs = self.modelArgs
 
-            for name, param in model.named_parameters():
-                print(
-                        name, 
-                        abs(newValues[name]-oldValues[name]).sum(),
-                        abs(newValues[name]-self.origValues[name]).sum()
-                    )
+        batch_iterator = torchtext.data.BucketIterator(
+            dataset=training_data, batch_size=appConfig.batch_size,
+            sort=False, sort_within_batch=False,
+            repeat=False)
+        batch_generator = batch_iterator.__iter__()
 
-        with blockProfiler("Compute loss"):
-            return loss.get_loss()
 
-    def _train_epochs(self, data, model, n_epochs, batch_size, start_epoch, start_step,
-                       dev_data=None, teacher_forcing_ratio=0, device=None):
+        nodeTagSet = set()
+        attrNameSet = set()
+        attrValueSymbolSet = set()
+        textSymbolSet = set()
+        maxFanout = 0
+        maxNodeTextLen = 0
+        maxAttrValueLen = 0
+        maxOutputLen = 0
+        for batch in batch_generator:
+            # Process input.
+            inputTreeList = getattr(batch, hier2hier.src_field_name)
+            for inputTree in inputTreeList:
+                for node in inputTree.getroot().iter():
+                    nodeTagSet.add(node.tag)
+                    for attrName, attrValue in node.attrib.items():
+                        attrNameSet.add(attrName)
+                        for ch in attrValue:
+                            attrValueSymbolSet.add(ch)
+                        attrNameSet.add(attrName)
+                        maxAttrValueLen = max(maxAttrValueLen, len(attrValue))
+                    for ch in node.text:
+                        textSymbolSet.add(ch)
+                    maxFanout = max(maxFanout, len(node))
+                    maxNodeTextLen = max(maxNodeTextLen, len(node.text))
+
+            # Process output.
+            _, outputLengths = getattr(batch, hier2hier.tgt_field_name)
+            for outputLength in outputLengths:
+                maxOutputLen = max(maxOutputLen, int(outputLength))
+
+        if modelArgs.max_node_count is None:
+            modelArgs.max_node_count = len(nodeTagSet)
+        elif modelArgs.max_node_count < len(nodeTagSet):
+            raise ValueError("max_node_count smaller than the actual node count.")
+
+        if modelArgs.total_attrs_count is None:
+            modelArgs.total_attrs_count = len(attrNameSet)
+        elif modelArgs.total_attrs_count < len(attrNameSet):
+            raise ValueError("total_attrs_count smaller than the actual attr count.")
+
+        if modelArgs.value_symbols_count is None:
+            modelArgs.value_symbols_count = len(attrValueSymbolSet)
+        elif modelArgs.value_symbols_count < len(attrValueSymbolSet):
+            raise ValueError("Attribute value symbol count set smaller than the actual symbol count.")
+
+        if modelArgs.max_node_fanout is None:
+            modelArgs.max_node_fanout = maxFanout
+        elif modelArgs.max_node_fanout < maxFanout:
+            raise ValueError("max_fanout set smaller than the actual max fanout.")
+
+        if modelArgs.max_node_text_len is None:
+            modelArgs.max_node_text_len = maxNodeTextLen
+        elif modelArgs.max_node_text_len < maxNodeTextLen:
+            raise ValueError("max_node_text_len set smaller than the actual maximum text length.")
+
+        if modelArgs.max_attrib_value_len is None:
+            modelArgs.max_attrib_value_len = maxAttrValueLen
+        elif modelArgs.max_attrib_value_len < maxAttrValueLen:
+            raise ValueError("max_attrib_value_len smaller than the actual maximum attribute value length.")
+
+        if modelArgs.max_output_len is None:
+            modelArgs.max_output_len = maxOutputLen
+        elif modelArgs.max_output_len < maxOutputLen:
+            raise ValueError("maxOutputLen smaller than the actual maximum output length.")
+
+    def _train_epochs(self, training_data, dev_data):
         log = self.logger
 
         print_loss_total = 0  # Reset every print_every
         epoch_loss_total = 0  # Reset every epoch
 
         batch_iterator = torchtext.data.BucketIterator(
-            dataset=data, batch_size=batch_size,
+            dataset=training_data, batch_size=self.batch_size,
             sort=True, sort_within_batch=True,
             sort_key=lambda x: len(x.tgt),
-            device=device, repeat=False)
+            device=self.device, repeat=False)
 
+        start_step = self.step
         steps_per_epoch = len(batch_iterator)
-        total_steps = steps_per_epoch * n_epochs
+        total_steps = steps_per_epoch * self.n_epochs
 
-        step = start_step
-
-        if self.tensorBoardHook is not None:
-            self.tensorBoardHook.stepReset(
-                step=start_step,
-                epoch=start_epoch,
-                steps_per_epoch=steps_per_epoch)
+        self.tensorBoardHook.stepReset(
+            step=self.step,
+            epoch=self.epoch,
+            steps_per_epoch=steps_per_epoch)
         step_elapsed = 0
-
-        for epoch in range(start_epoch, n_epochs + 1):
+        
+        while self.epoch != self.n_epochs:
             self.tensorBoardHook.epochNext()
-            log.debug("Epoch: %d, Step: %d" % (epoch, step))
+            log.debug("Epoch: %d, Step: %d" % (self.epoch, self.step))
 
             # Partition next batch for iteartion within curent epoch.
             batch_generator = batch_iterator.__iter__()
 
             # Consuming batches already seen within the checkpoint.
-            for n in range(epoch * steps_per_epoch, step):
-                log.info("Skipping batch (epoch={0}, step={1}).".format(epoch, n))
+            for n in range(self.epoch * steps_per_epoch, self.step):
+                log.info("Skipping batch (epoch={0}, step={1}).".format(self.epoch, n))
                 next(batch_generator)
 
-            model.train(True)
+            self.model.train(True)
             for batch in batch_generator:
                 self.tensorBoardHook.batchNext()
-                step += 1
+                self.step += 1
                 step_elapsed += 1
-                self.tensorBoardHook.batch = step % steps_per_epoch
+                self.tensorBoardHook.batch = self.step % steps_per_epoch
 
                 input_variables = getattr(batch, hier2hier.src_field_name)
                 target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
 
-                loss = self._train_batch(input_variables, target_variables, target_lengths, model)
+                loss = self._train_batch(input_variables, target_variables, target_lengths)
                 if self.debug.profile:
                     print("Profiling info:")
                     print(json.dumps(lastCallProfile(True), indent=2))
@@ -159,10 +372,10 @@ class SupervisedTrainer(object):
                 print_loss_total += loss
                 epoch_loss_total += loss
 
-                if step % self.print_every == 0 and step_elapsed > self.print_every:
+                if self.step % self.print_every == 0 and step_elapsed > self.print_every:
                     print_loss_avg = print_loss_total / self.print_every
                     log_msg = 'Progress: %d%%, Train %s: %.4f/%d=%.4f' % (
-                        step / total_steps * 100,
+                        self.step / total_steps * 100,
                         self.loss.name,
                         print_loss_total,
                         self.print_every,
@@ -173,97 +386,70 @@ class SupervisedTrainer(object):
                     print_loss_total = 0
 
                 # Checkpoint
-                if step % self.checkpoint_every == 0 or step == total_steps:
-                    Checkpoint(model=model,
+                if self.step % self.checkpoint_every == 0 or self.step == total_steps:
+                    checkpointFolder = "{0}{1}Chk{2:04}.{3:05}".format(
+                        self.appConfig.training_dir,
+                        self.appConfig.runFolder,
+                        int(self.step / steps_per_epoch), # Cur epoch
+                        self.step)
+                    Checkpoint(model=self.model,
                                optimizer=self.optimizer,
-                               epoch=epoch, step=step, batch_size=batch_size,
-                               input_vocabs=data.fields[hier2hier.src_field_name].vocabs,
-                               output_vocab=data.fields[hier2hier.tgt_field_name].vocab).save(self.expt_dir)
+                               loss=self.loss,
+                               epoch=self.epoch,
+                               step=self.step,
+                               batch_size=self.batch_size,
+                               input_vocabs=training_data.fields["src"].vocabs,
+                               output_vocab=training_data.fields["tgt"].vocab,
+                               modelArgs=self.modelArgs
+                            ).save(checkpointFolder)
 
-            if step == start_step:
-                continue
-                
-            epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, step - start_step)
+            epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
             epoch_loss_total = 0
 
-            log_msg = "Finished epoch %d: Train %s: %.4f" % (epoch, self.loss.name, epoch_loss_avg)
+            log_msg = "Finished epoch %d: Train %s: %.4f" % (self.epoch, self.loss.name, epoch_loss_avg)
             if dev_data is not None:
-                dev_loss, accuracy = self.evaluator.evaluate(model, device, dev_data), float('nan')
-                self.optimizer.update(dev_loss, epoch)
+                dev_loss, accuracy = self.evaluator.evaluate(self.model, self.device, dev_data), float('nan')
+                self.optimizer.update(dev_loss, self.epoch)
                 log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
-                model.train(mode=True)
+                self.model.train(mode=True)
             else:
-                self.optimizer.update(epoch_loss_avg, epoch)
+                self.optimizer.update(epoch_loss_avg, self.epoch)
 
+            self.epoch += 1
             log.info(log_msg)
 
-    def train(self, model, newModelArgs, data,
-              dev_data=None,
-              optimizer=None, device=None):
-        """ Run training for a given model.
+    @methodProfiler
+    def _train_batch(self, input_variable, target_variable, target_lengths):
+        with blockProfiler("Input Forward Propagation"):
+            # Forward propagation
+            decoder_outputs, _ = self.model(input_variable,
+                                    target_variable,
+                                    target_lengths,
+                                    )
 
-        Args:
-            model (hier2hier.models): model to run training on, if `resume=True`, it would be
-               overwritten by the model loaded from the latest checkpoint.
-            data (hier2hier.dataset.dataset.Dataset): dataset object to train on
-            num_epochs (int, optional): number of epochs to run (default 5)
-            resume(bool, optional): resume training with the latest checkpoint, (default False)
-            dev_data (hier2hier.dataset.dataset.Dataset, optional): dev Dataset (default None)
-            optimizer (hier2hier.optim.Optimizer, optional): optimizer for training
-               (default: Optimizer(pytorch.optim.Adam, max_grad_norm=5))
-        Returns:
-            model (hier2hier.models): trained model.
-        """
-        log = self.logger
+        with blockProfiler("Batch Loss Calculation"):
+            # Get loss
+            self.loss.reset()
+            n = target_variable.numel()
+            self.loss.eval_batch(decoder_outputs.view(n, -1), target_variable.view(n,))
+        with blockProfiler("Reset model gradient"):
+            # Backward propagation
+            self.model.zero_grad()
 
-        num_epochs = 5 if newModelArgs is None else newModelArgs.epochs
+        with blockProfiler("Loss Propagation Backward"):
+            self.loss.backward()
 
-        # If training is set to resume
-        if newModelArgs.resume:
-            latest_checkpoint_path = Checkpoint.get_latest_checkpoint(self.expt_dir)
-            resume_checkpoint = Checkpoint.load(latest_checkpoint_path)
-            model = resume_checkpoint.model
-            model.set_device(device)
-            self.optimizer = resume_checkpoint.optimizer
+        # Log info into tensorboard.
+        for name, param in self.model.named_parameters():
+            self.tensorBoardHook.add_histogram(name, param)
+            self.tensorBoardHook.add_histogram(name + ".grad", param)
 
-            # Some parameters, loaded from checkpoint, may be overridden in the command line.
-            model.max_output_len = newModelArgs.max_output_len
-            model.nodeInfoEncoder.max_node_count = newModelArgs.max_node_count
-            model.outputDecoder.max_output_len = newModelArgs.max_output_len
-            model.outputDecoder.teacher_forcing_ratio = newModelArgs.teacher_forcing_ratio
-            model.outputDecoder.runtests = newModelArgs.debug.runtests
-            model.debug = newModelArgs.debug
+        with blockProfiler("Step optimizer"):
+            self.optimizer.step()
 
-            # A walk around to set optimizing parameters properly
-            resume_optim = self.optimizer.optimizer
-            defaults = resume_optim.param_groups[0]
-            defaults.pop('params', None)
-            defaults.pop('initial_lr', None)
-            self.optimizer.optimizer = resume_optim.__class__(model.parameters(), **defaults)
+        with blockProfiler("Compute loss"):
+            loss = self.loss.get_loss()
 
-            start_epoch = resume_checkpoint.epoch
-            step = resume_checkpoint.step
-            if newModelArgs is None:
-                batch_size = resume_checkpoint.batch_size
-            else:
-                batch_size = resume_checkpoint.batch_size
-                if newModelArgs.batch_size != resume_checkpoint.batch_size:
-                    log.warn("Changing batchsize from {0} to model specified {1}.".format(
-                        batch_size,
-                        resume_checkpoint.batch_size
-                    ))
-        else:
-            start_epoch = 0
-            step = 0
-            batch_size = newModelArgs.batch_size
-            if optimizer is None:
-                optimizer = Optimizer(optim.Adam(model.parameters()), max_grad_norm=5)
-            self.optimizer = optimizer
+        self.tensorBoardHook.add_scalar("loss", loss)
 
-
-        log.info("Optimizer: %s, Scheduler: %s" % (self.optimizer.optimizer, self.optimizer.scheduler))
-
-        self._train_epochs(data, model, num_epochs, batch_size,
-                            start_epoch, step, dev_data=dev_data,
-                            device=device)
-        return model
+        return loss

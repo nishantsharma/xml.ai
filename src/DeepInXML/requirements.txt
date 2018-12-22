@@ -9,3 +9,4 @@ orderedattrdict
 sortedcontainers
 tensorboardX
 tensorflow=1.9.0
+enum

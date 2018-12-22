@@ -1,0 +1,1 @@
+GEN_ARGS=--dir=$DOMAIN_DATA_DIR

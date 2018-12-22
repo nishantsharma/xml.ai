@@ -6,7 +6,7 @@ import random
 import string
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dir', help="data directory", default="../../../data")
+parser.add_argument('--dir', help="data directory", default="data/")
 parser.add_argument('--max-len', help="max sequence length", default=10)
 args = parser.parse_args()
 
@@ -47,7 +47,7 @@ if __name__ == '__main__':
     if not os.path.exists(data_dir):
         os.mkdir(data_dir)
 
-    toy_dir = os.path.join(data_dir, '01_toy_reverse')
+    toy_dir = data_dir
     if not os.path.exists(toy_dir):
         os.mkdir(toy_dir)
 
