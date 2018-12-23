@@ -29,9 +29,9 @@ class TensorBoardHook(SummaryWriter):
     def add_scalar(self, label, value):
         if self.expt_dir is None:
             return
-        super().add_scalar(label, value, self._step)
+        super().add_scalar(label, value, self._epoch)
 
     def add_histogram(self, label, value):
         if self.expt_dir is None:
             return
-        super().add_histogram(label, value.cpu().detach().numpy(), self._step)
+        super().add_histogram(label, value.cpu().detach().numpy(), self._epoch)

@@ -442,7 +442,8 @@ class SupervisedTrainer(object):
         # Log info into tensorboard.
         for name, param in self.model.named_parameters():
             self.tensorBoardHook.add_histogram(name, param)
-            self.tensorBoardHook.add_histogram(name + ".grad", param)
+            if param.grad is not None:
+                self.tensorBoardHook.add_histogram(name + "_grad", param.grad)
 
         with blockProfiler("Step optimizer"):
             self.optimizer.step()
