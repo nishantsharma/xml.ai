@@ -24,7 +24,7 @@ appConfig, modelArgs = loadConfig(AppMode.Train)
 
 # Setup logging
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, appConfig.log_level.upper()))
+logging.basicConfig(filename=appConfig.runFolder + "training.log", format=LOG_FORMAT, level=getattr(logging, appConfig.log_level.upper()))
 
 # Log config info.
 logging.info("Application Config: {0}".format(json.dumps(vars(appConfig), indent=2)))

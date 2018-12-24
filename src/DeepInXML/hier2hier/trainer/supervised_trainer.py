@@ -15,7 +15,7 @@ from hier2hier.optim import Optimizer
 from hier2hier.models import Hier2hier
 from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util.tensorboard import TensorBoardHook
+from hier2hier.util import TensorBoardHook, nullTensorBoardHook
 
 
 class SupervisedTrainer(object):
@@ -52,10 +52,12 @@ class SupervisedTrainer(object):
 
         # Logging.
         self.logger = logging.getLogger(__name__)
-        if self.debug.tensorboard:
-            self.tensorBoardHook = TensorBoardHook(self.appConfig.training_dir + self.appConfig.runFolder)
+        if self.debug.tensorboard != 0:
+            self.tensorBoardHook = TensorBoardHook(
+                self.debug.tensorboard,
+                self.appConfig.training_dir + self.appConfig.runFolder)
         else:
-            self.tensorBoardHook = TensorBoardHook(None)
+            self.tensorBoardHook = nullTensorBoardHook
 
         # Field objects contain vocabulary information(Vocab objects) which
         # determines how to numericalize textual data.
@@ -198,6 +200,7 @@ class SupervisedTrainer(object):
         if self.model is None:
             self.load(training_data)
 
+        self.model.train()
         self._train_epochs(training_data, dev_data)
         return self.model
 
@@ -381,7 +384,6 @@ class SupervisedTrainer(object):
                         self.print_every,
                         print_loss_avg)
                     log.info(log_msg)
-                    self.tensorBoardHook.add_scalar("loss", print_loss_avg)
 
                     print_loss_total = 0
 
@@ -411,6 +413,7 @@ class SupervisedTrainer(object):
                 dev_loss, accuracy = self.evaluator.evaluate(self.model, self.device, dev_data), float('nan')
                 self.optimizer.update(dev_loss, self.epoch)
                 log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
+                self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
                 self.model.train(mode=True)
             else:
                 self.optimizer.update(epoch_loss_avg, self.epoch)
@@ -422,10 +425,11 @@ class SupervisedTrainer(object):
     def _train_batch(self, input_variable, target_variable, target_lengths):
         with blockProfiler("Input Forward Propagation"):
             # Forward propagation
-            decoder_outputs, _ = self.model(input_variable,
+            decoder_outputs, _ = self.model(
+                                    input_variable,
                                     target_variable,
                                     target_lengths,
-                                    tensorBoardHook=self.tensorBoardHook,
+                                    self.tensorBoardHook,
                                     )
 
         with blockProfiler("Batch Loss Calculation"):

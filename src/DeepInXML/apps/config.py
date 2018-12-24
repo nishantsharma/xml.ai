@@ -38,7 +38,7 @@ def loadConfig(mode):
                         help="Index of the run that should be operated upon.")
     parser.add_argument('--resume', default=None, type=str2bool3,
                         help='Indicates if training has to be resumed from the latest checkpoint')
-    parser.add_argument("--checkpoint_every", type = int, default = 10,
+    parser.add_argument("--checkpoint_every", type = int, default = 100,
                         help="Number of epochs after which we take a checkpoint.")
 
     # Randomizaion settings.
@@ -51,8 +51,8 @@ def loadConfig(mode):
                         default='info',
                         help='Logging level.')
     parser.add_argument("--tensorboard",
-                        type=str2bool, default=False,
-                        help="Set to true to enable dumping for tensorboard.")
+                        type=int, default=0,
+                        help="Frequency of logging data into tensorboard. Set to 0 to disable.")
     parser.add_argument("--profile",
                         type=str2bool, default=False,
                         help="Set to true to enable profiling info printing mode.")

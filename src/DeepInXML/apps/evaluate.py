@@ -50,6 +50,7 @@ test_batch_iterator = torchtext.data.BucketIterator(
 
 # Get model from the trainer.
 h2hModel = trainer.model
+h2hModel.eval()
 
 # In a loop, run the trained model over test dataset.
 for i, singleton_batch in enumerate(test_batch_iterator):

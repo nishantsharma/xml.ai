@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
-from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile
+from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile, nullTensorBoardHook
 
 from .moduleBase import ModuleBase 
 from .nodeInfoEncoder import NodeInfoEncoder
@@ -85,6 +85,8 @@ class Hier2hier(ModuleBase):
             target_lengths=None,
             tensorBoardHook=None,
             ):
+        if tensorBoardHook is None:
+            tensorBoardHook = nullTensorBoardHook
         node2Index = {}
         node2Parent = {}
         treeIndex2NodeIndex2NbrIndices = {}
@@ -121,12 +123,12 @@ class Hier2hier(ModuleBase):
                 node2Index,
                 node2Parent,
                 xmlTreeList,
-                tensorBoardHook=tensorBoardHook,
+                tensorBoardHook,
                 )
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(
                 treeIndex2NodeIndex2NbrIndices,
                 nodeInfoTensor,
-                tensorBoardHook=tensorBoardHook,
+                tensorBoardHook,
                 )
         (
             outputSymbolTensors,
@@ -138,7 +140,7 @@ class Hier2hier(ModuleBase):
                 nodeInfoPropagatedTensor,
                 targetOutput,
                 target_lengths,
-                tensorBoardHook=tensorBoardHook,
+                tensorBoardHook,
             )
 
         if self.debug.runtests:

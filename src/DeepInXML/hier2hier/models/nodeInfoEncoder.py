@@ -71,7 +71,7 @@ class NodeTextEncoder(EncoderRNN):
         return encodedTextVec[0]
 
     @methodProfiler
-    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook=None):
+    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook):
         maxLen = -1
         allText = []
         for treeIndex, xmlTree in enumerate(xmlTreeList):
@@ -102,8 +102,7 @@ class NodeTextEncoder(EncoderRNN):
         #textTensor = self.textTensorBatchNorm(textTensor) 
 
         # Encode.
-        if tensorBoardHook is not None:
-            tensorBoardHook.add_histogram("TextEncoderGru.Input", textTensor)
+        tensorBoardHook.add_histogram("TextEncoderGru.Input", textTensor)
         _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
 
         # Populate treeIndex2NodeIndex2EncodedIndex
@@ -256,9 +255,9 @@ class NodeInfoEncoder(ModuleBase):
         return retval
 
     @methodProfiler
-    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook=None):
+    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook):
         encodedTags = self.tagsEncoder(node2Index, node2Parent, xmlTreeList)
-        encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList, tensorBoardHook=tensorBoardHook)
+        encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList, tensorBoardHook)
         encodedAttributes = self.attribsEncoder(node2Index, node2Parent, xmlTreeList)
 
         attrShape = encodedAttributes.shape

@@ -95,7 +95,7 @@ class NodeInfoPropagator(ModuleBase):
         return selectorForParentInfos, selectorForChildrenInfoList
 
     @methodProfiler
-    def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor, tensorBoardHook=None):
+    def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor, tensorBoardHook):
         sampleCount = len(nodeInfosTensor)
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
 

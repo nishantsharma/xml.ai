@@ -4,6 +4,9 @@ from attrdict import AttrDict
 import torch
 
 from .profiler import lastCallProfile, appendProfilingData, methodProfiler, blockProfiler
+from .tensorboard import TensorBoardHook
+
+nullTensorBoardHook = TensorBoardHook(0)
 
 def invertPermutation(perm):
     inverse = [0] * len(perm)
