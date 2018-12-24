@@ -233,7 +233,8 @@ class OutputDecoder(BaseRNN):
             treeIndex2NodeIndex2NbrIndices,
             nodeInfoPropagatedTensor,
             targetOutput=None,
-            targetLengths=None):
+            targetLengths=None,
+            tensorBoardHook=None):
         sampleCount = len(nodeInfoPropagatedTensor)
         with blockProfiler("ProcessPreLoop"):
             duringTraining = targetOutput is not None
@@ -341,6 +342,9 @@ class OutputDecoder(BaseRNN):
                         curGruStateContiguous = curGruState.contiguous()
                         
                     with blockProfiler("GRUCELL2"):
+                        if tensorBoardHook is not None:
+                            tensorBoardHook.add_histogram("OutputDecoderGru.Input", curGruInput)
+                            tensorBoardHook.add_histogram("OutputDecoderGru.State", curGruStateContiguous)
                         curOutput, curGruState = self.gruCell(curGruInput, curGruStateContiguous)
 
                     # Compute next symbol.

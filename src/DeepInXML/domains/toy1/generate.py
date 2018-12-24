@@ -8,6 +8,7 @@ import string
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', help="data directory", default="data/")
 parser.add_argument('--max-len', help="max sequence length", default=10)
+parser.add_argument('--count', help="Total number of data entries to generate", default=1000)
 args = parser.parse_args()
 
 def generate_dataset(root, name, size):
@@ -51,6 +52,6 @@ if __name__ == '__main__':
     if not os.path.exists(toy_dir):
         os.mkdir(toy_dir)
 
-    generate_dataset(toy_dir, 'train', 10000)
-    generate_dataset(toy_dir, 'dev', 1000)
-    generate_dataset(toy_dir, 'test', 1000)
+    generate_dataset(toy_dir, 'train', int(0.80*args.count))
+    generate_dataset(toy_dir, 'dev', int(0.10*args.count))
+    generate_dataset(toy_dir, 'test', int(0.10*args.count))

@@ -57,6 +57,7 @@ class NodeTextEncoder(EncoderRNN):
         self.textVocab = textVocab
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
+        self.textTensorBatchNorm = nn.BatchNorm1d(num_features=node_text_vec_len)
 
     @torch.no_grad()
     def test_forward_one(self, text):
@@ -70,7 +71,7 @@ class NodeTextEncoder(EncoderRNN):
         return encodedTextVec[0]
 
     @methodProfiler
-    def forward(self, node2Index, node2Parent, xmlTreeList):
+    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook=None):
         maxLen = -1
         allText = []
         for treeIndex, xmlTree in enumerate(xmlTreeList):
@@ -97,7 +98,12 @@ class NodeTextEncoder(EncoderRNN):
         textTensor = torch.tensor(textList, dtype=torch.long, device=self.device)
         textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long, device=self.device)
 
+        # Apply batch norm before activation.
+        #textTensor = self.textTensorBatchNorm(textTensor) 
+
         # Encode.
+        if tensorBoardHook is not None:
+            tensorBoardHook.add_histogram("TextEncoderGru.Input", textTensor)
         _, encodedTextVec = super().forward(textTensor, textLengthsTensor)
 
         # Populate treeIndex2NodeIndex2EncodedIndex
@@ -250,9 +256,9 @@ class NodeInfoEncoder(ModuleBase):
         return retval
 
     @methodProfiler
-    def forward(self, node2Index, node2Parent, xmlTreeList):
+    def forward(self, node2Index, node2Parent, xmlTreeList, tensorBoardHook=None):
         encodedTags = self.tagsEncoder(node2Index, node2Parent, xmlTreeList)
-        encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList)
+        encodedText = self.nodeTextEncoder(node2Index, node2Parent, xmlTreeList, tensorBoardHook=tensorBoardHook)
         encodedAttributes = self.attribsEncoder(node2Index, node2Parent, xmlTreeList)
 
         attrShape = encodedAttributes.shape

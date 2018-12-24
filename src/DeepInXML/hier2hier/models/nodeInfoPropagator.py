@@ -28,6 +28,11 @@ class NodeInfoPropagator(ModuleBase):
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
+        
+        # Batch norm on propagated info.
+        self.batchNormPropagatedInfo = nn.BatchNorm1d(num_features=propagated_info_len)
+
+        # Ops to apply while propagating parent and neighbor info.
         self.parentOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
         self.neighborOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
 
@@ -90,10 +95,9 @@ class NodeInfoPropagator(ModuleBase):
         return selectorForParentInfos, selectorForChildrenInfoList
 
     @methodProfiler
-    def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+    def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor, tensorBoardHook=None):
         sampleCount = len(nodeInfosTensor)
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
-        return nodeInfoPropagated
 
         # For efficiency, we need to re-arrange nodes in nodeInfosTensor in the increasing
         # order of fanout.
@@ -122,60 +126,67 @@ class NodeInfoPropagator(ModuleBase):
         # Get a flattened view of nodeInfoToPropagate. Flat view is easier to permute.
         nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount*self.max_node_count, self.propagated_info_len)
 
-        # Permute nodeInfoToPropagateFlat in the order of decreasing fanout.
-        nodeInfoPropagatedReOrdered = torch.index_select(
-            nodeInfoPropagatedFlat,
-            0,
-            flatIndicesByDecreasingFanout)
+        # Apply batch norm.
+        nodeInfoPropagatedFlat = self.batchNormPropagatedInfo(nodeInfoPropagatedFlat)
 
-        for i in range(self.node_info_propagator_stack_depth):
-            # Prepare parent info for propagation into new nodeInfoPropagated.
-            parentInfosToPropagateReOrdered = nodeInfoPropagatedFlat[selectorForParentInfos, ...]
+        # Run propagation loop.
+        if False:
+            # Permute nodeInfoToPropagateFlat in the order of decreasing fanout.
+            nodeInfoPropagatedReOrdered = torch.index_select(
+                nodeInfoPropagatedFlat,
+                0,
+                flatIndicesByDecreasingFanout)
 
-            # Compute children info to propagate to each node.
-            childrenInfoToPropagateReOrdered = torch.tensor([], device=self.device)
-            for selectorForChildrenInfo in selectorForChildrenInfoList:
-                curChildrenInfoReOrdered = nodeInfoPropagatedReOrdered[selectorForChildrenInfo, ...]
-                if not childrenInfoToPropagateReOrdered.shape[0]:
-                    # First iteration of the loop.
-                    childrenInfoToPropagateReOrdered = curChildrenInfoReOrdered
+            for i in range(self.node_info_propagator_stack_depth):
+                # Prepare parent info for propagation into new nodeInfoPropagated.
+                parentInfosToPropagateReOrdered = nodeInfoPropagatedFlat[selectorForParentInfos, ...]
+
+                # Compute children info to propagate to each node.
+                childrenInfoToPropagateReOrdered = torch.tensor([], device=self.device)
+                for selectorForChildrenInfo in selectorForChildrenInfoList:
+                    curChildrenInfoReOrdered = nodeInfoPropagatedReOrdered[selectorForChildrenInfo, ...]
+                    if not childrenInfoToPropagateReOrdered.shape[0]:
+                        # First iteration of the loop.
+                        childrenInfoToPropagateReOrdered = curChildrenInfoReOrdered
+                    else:
+                        assert(curChildrenInfoReOrdered.shape[0] >= childrenInfoToPropagateReOrdered.shape[0])
+                        # If the fanout increases in current iteration, pad neighbor infos by the deficit.
+                        if curChildrenInfoReOrdered.shape[0] > childrenInfoToPropagateReOrdered.shape[0]:
+                            deficit = curChildrenInfoReOrdered.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
+                            childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, deficit)(childrenInfoToPropagateReOrdered)
+                        childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered + curChildrenInfoReOrdered
+
+                if childrenInfoToPropagateReOrdered.shape[0]:
+                    # Row-wise normalization of childrenInfoToPropagate by fanout.
+                    # Don't do it in-place.
+                    childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered / decreasingFanouts
+
+                    # There may still be some row deficit remaining because some nodes do not have children.
+                    finalDeficit = nodeInfoPropagatedFlat.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
+                    childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, finalDeficit)(childrenInfoToPropagateReOrdered)
                 else:
-                    assert(curChildrenInfoReOrdered.shape[0] >= childrenInfoToPropagateReOrdered.shape[0])
-                    # If the fanout increases in current iteration, pad neighbor infos by the deficit.
-                    if curChildrenInfoReOrdered.shape[0] > childrenInfoToPropagateReOrdered.shape[0]:
-                        deficit = curChildrenInfoReOrdered.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
-                        childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, deficit)(childrenInfoToPropagateReOrdered)
-                    childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered + curChildrenInfoReOrdered
+                    # The case where no node has a child an all are in deficit.
+                    childrenInfoToPropagateReOrdered = torch.zeros(nodeInfoPropagatedFlat.shape, device=self.device)
 
-            if childrenInfoToPropagateReOrdered.shape[0]:
-                # Row-wise normalization of childrenInfoToPropagate by fanout.
-                # Don't do it in-place.
-                childrenInfoToPropagateReOrdered = childrenInfoToPropagateReOrdered / decreasingFanouts
+                # Apply distinct linear operations on parent and children node infos before propagate.
+                parentInfosToPropagateReOrdered = self.parentOp(parentInfosToPropagateReOrdered)
+                childrenInfoToPropagateReOrdered = self.neighborOp(childrenInfoToPropagateReOrdered)
 
-                # There may still be some row deficit remaining because some nodes do not have children.
-                finalDeficit = nodeInfoPropagatedFlat.shape[0] - childrenInfoToPropagateReOrdered.shape[0]
-                childrenInfoToPropagateReOrdered = nn.ZeroPad2d(0, 0, 0, finalDeficit)(childrenInfoToPropagateReOrdered)
-            else:
-                # The case where no node has a child an all are in deficit.
-                childrenInfoToPropagateReOrdered = torch.zeros(nodeInfoPropagatedFlat.shape, device=self.device)
+                # Compute final neighbor information summary.
+                neighborsNodeInfoSummary = parentInfosToPropagateReOrdered + childrenInfoToPropagateReOrdered
 
-            # Apply distinct linear operations on parent and children node infos before propagate.
-            parentInfosToPropagateReOrdered = self.parentOp(parentInfosToPropagateReOrdered)
-            childrenInfoToPropagateReOrdered = self.neighborOp(childrenInfoToPropagateReOrdered)
+                # Propagate the new neighbor information using GRU cell to obtain updated node info.
+                nodeInfoPropagatedReOrdered = self.gruCell(nodeInfoPropagatedReOrdered, neighborsNodeInfoSummary)
 
-            # Compute final neighbor information summary.
-            neighborsNodeInfoSummary = parentInfosToPropagateReOrdered + childrenInfoToPropagateReOrdered
+            # Invert re-ordering to obtain the flat newly propagated node info tensor.
+            nodeInfoPropagatedFlat = torch.index_select(
+                nodeInfoPropagatedReOrdered,
+                0,
+                flatIndicesByDecreasingFanoutInverse)
 
-            # Propagate the new neighbor information using GRU cell to obtain updated node info.
-            nodeInfoPropagatedReOrdered = self.gruCell(nodeInfoPropagatedReOrdered, neighborsNodeInfoSummary)
-
-        # Invert re-ordering to obtain the flat newly propagated node info tensor.
-        nodeInfoPropagated = torch.index_select(
-            nodeInfoPropagatedReOrdered,
-            0,
-            flatIndicesByDecreasingFanoutInverse)
 
         # Undo flat.
-        nodeInfoPropagated = nodeInfoPropagated.view(sampleCount, self.max_node_count, self.propagated_info_len)
+        nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount, self.max_node_count, self.propagated_info_len)
+
         return nodeInfoPropagated
 

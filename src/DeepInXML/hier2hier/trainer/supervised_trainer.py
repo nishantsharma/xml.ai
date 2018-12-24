@@ -132,7 +132,7 @@ class SupervisedTrainer(object):
             optimizer = resume_checkpoint.optimizer
 
             # We need to override almost all cmd line specified modelArgs with what we
-            # loaded from checkpoint. Some parameters, may also come from the command line.
+            # loaded from checkpoint. Some parameters from the command line are also used.
             # Edit modelArgs and use.
             modelArgs = resume_checkpoint.modelArgs
             if self.modelArgs.max_output_len is not None:
@@ -425,6 +425,7 @@ class SupervisedTrainer(object):
             decoder_outputs, _ = self.model(input_variable,
                                     target_variable,
                                     target_lengths,
+                                    tensorBoardHook=self.tensorBoardHook,
                                     )
 
         with blockProfiler("Batch Loss Calculation"):

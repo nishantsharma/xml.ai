@@ -83,6 +83,7 @@ class Hier2hier(ModuleBase):
             xmlTreeList,
             targetOutput=None,
             target_lengths=None,
+            tensorBoardHook=None,
             ):
         node2Index = {}
         node2Parent = {}
@@ -116,18 +117,29 @@ class Hier2hier(ModuleBase):
                     curNodeChildrenList.append(node2Index[childNode])
 
 
-        nodeInfoTensor = self.nodeInfoEncoder(node2Index, node2Parent, xmlTreeList)
-        nodeInfoPropagatedTensor = self.nodeInfoPropagator(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
+        nodeInfoTensor = self.nodeInfoEncoder(
+                node2Index,
+                node2Parent,
+                xmlTreeList,
+                tensorBoardHook=tensorBoardHook,
+                )
+        nodeInfoPropagatedTensor = self.nodeInfoPropagator(
+                treeIndex2NodeIndex2NbrIndices,
+                nodeInfoTensor,
+                tensorBoardHook=tensorBoardHook,
+                )
         (
             outputSymbolTensors,
             outputSymbols,
             teacherForcedSelections,
             decoderTestTensors
         ) = self.outputDecoder(
-            treeIndex2NodeIndex2NbrIndices,
-            nodeInfoPropagatedTensor,
-            targetOutput,
-            target_lengths)
+                treeIndex2NodeIndex2NbrIndices,
+                nodeInfoPropagatedTensor,
+                targetOutput,
+                target_lengths,
+                tensorBoardHook=tensorBoardHook,
+            )
 
         if self.debug.runtests:
             nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)

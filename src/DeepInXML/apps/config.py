@@ -162,7 +162,7 @@ def loadConfig(mode):
     # Identify runFolder and runIndex
     (
         appConfig.runFolder,
-        appConfig.runIndex,
+        appConfig.run,
         appConfig.resume,
     ) = getRunFolder(
                 appConfig.training_dir,
@@ -178,6 +178,10 @@ def loadConfig(mode):
         appConfig.checkpointStep,
         appConfig.checkpointFolder
     ) = getLatestCheckpoint(appConfig.training_dir, appConfig.runFolder)
+
+    # If runFolder exists but checkpoint folder doesn't, we still can't resume.
+    if appConfig.checkpointFolder is None:
+        appConfig.resume = False
 
     return appConfig, modelArgs
 
