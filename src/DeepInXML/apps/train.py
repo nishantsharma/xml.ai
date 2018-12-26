@@ -37,8 +37,8 @@ device = torch.device("cuda") if torch.cuda.is_available() else None
 trainer = SupervisedTrainer(appConfig, modelArgs, device)
 
 # Load training and dev dataset.
-training_data = Hier2HierDataset(baseFolder=appConfig.train_path, fields=trainer.fields)
-dev_data = Hier2HierDataset(baseFolder=appConfig.dev_path, fields=trainer.fields)
+training_data = Hier2HierDataset(baseFolder=appConfig.train_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
+dev_data = Hier2HierDataset(baseFolder=appConfig.dev_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
 
 # Train the model.
 trainer.train(training_data, dev_data=dev_data)

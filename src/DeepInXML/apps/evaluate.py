@@ -40,7 +40,7 @@ trainer = SupervisedTrainer(appConfig, modelArgs, device)
 trainer.load()
 
 # Load test dataset.
-test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.fields)
+test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
 
 # Batching test inputs into singletons.
 test_batch_iterator = torchtext.data.BucketIterator(

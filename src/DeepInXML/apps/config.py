@@ -40,6 +40,10 @@ def loadConfig(mode):
                         help='Indicates if training has to be resumed from the latest checkpoint')
     parser.add_argument("--checkpoint_every", type = int, default = 100,
                         help="Number of epochs after which we take a checkpoint.")
+    parser.add_argument("--input_select_percent", type = float, default = None,
+                        help="Percentage of inputs actually to be selected for training. This helps in training"
+                             + " with smaller dataset that what all is available.")
+
 
     # Randomizaion settings.
     parser.add_argument('--random_seed', dest='random_seed',
@@ -101,7 +105,7 @@ def loadConfig(mode):
     parser.add_argument("--output_decoder_state_width", type = int, default = 32,
                         help="Width of GRU cell in output decoder.")
 
-    # Other meta-parameters of the generated neural network.
+    # Other meta-parameters for training the neural network.
     parser.add_argument("--input_dropout_p", type = int, default = 0,
                         help="Input dropout probability.")
     parser.add_argument("--dropout_p", type = int, default = 0,
@@ -110,6 +114,10 @@ def loadConfig(mode):
                         help="Use attention while selcting most appropriate.")
     parser.add_argument("--teacher_forcing_ratio", type = int, default = 0.50,
                         help="Teacher forcing ratio to using during decoder training.")
+    parser.add_argument("--learning_rate", type = float, default = 0.001,
+                        help="Learning rate to use during training.")
+    parser.add_argument('--clip_gradient', type=float, default=None,
+                        help='gradient clipping') 
 
     # Parse args to build app config dictionary.
     appConfig = parser.parse_args()
@@ -127,7 +135,8 @@ def loadConfig(mode):
                 "propagated_info_len", "output_decoder_stack_depth", "output_decoder_state_width",
 
                 # Other meta-parameters of the generated neural network.
-                "input_dropout_p", "dropout_p", "use_attention", "teacher_forcing_ratio",
+                "input_dropout_p", "dropout_p", "use_attention", "teacher_forcing_ratio", "learning_rate",
+                "clip_gradient",
             ]
         )
 

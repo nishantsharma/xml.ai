@@ -112,7 +112,7 @@ class SupervisedTrainer(object):
 
             # Create optimizer.
             if optimizer is None:
-                optimizer = Optimizer(optim.Adam(model.parameters()), max_grad_norm=5)
+                optimizer = Optimizer(optim.Adam(model.parameters(), lr=self.modelArgs.learning_rate), max_grad_norm=5)
 
             # Initialize model weights.
             for param in model.parameters():
@@ -143,6 +143,15 @@ class SupervisedTrainer(object):
                 modelArgs.max_node_count = self.modelArgs.max_node_count
             if self.modelArgs.max_output_len is not None:
                 modelArgs.teacher_forcing_ratio = self.modelArgs.teacher_forcing_ratio
+            if self.modelArgs.learning_rate is not None:
+                modelArgs.learning_rate = self.modelArgs.learning_rate
+            elif not hasattr(modelArgs, "learning_rate"):
+                modelArgs.learning_rate = None
+            if self.modelArgs.clip_gradient is not None:
+                modelArgs.clip_gradient = self.modelArgs.clip_gradient
+            elif not hasattr(modelArgs, "clip_gradient"):
+                modelArgs.clip_gradient = None 
+  
             model.max_output_len = modelArgs.max_output_len
             model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
             model.outputDecoder.max_output_len = modelArgs.max_output_len
@@ -155,13 +164,15 @@ class SupervisedTrainer(object):
             defaults = resume_optim.param_groups[0]
             defaults.pop('params', None)
             defaults.pop('initial_lr', None)
+            if modelArgs.learning_rate is not None:
+            	defaults["lr"] = modelArgs.learning_rate
             optimizer.optimizer = resume_optim.__class__(model.parameters(), **defaults)
 
             start_epoch = resume_checkpoint.epoch
             step = resume_checkpoint.step
             if (self.appConfig.batch_size != resume_checkpoint.batch_size):
-                log.warn("Changing batchsize from cmdline specified {0} to model specified {1}.".format(
-                    self.modelArgs.batch_size,
+                log.warn("Changing batch_size from cmdline specified {0} to model specified {1}.".format(
+                    self.appConfig.batch_size,
                     resume_checkpoint.batch_size
                 ))
                 batch_size = resume_checkpoint.batch_size
@@ -344,17 +355,26 @@ class SupervisedTrainer(object):
             steps_per_epoch=steps_per_epoch)
         step_elapsed = 0
         
+        first_time = True
         while self.epoch != self.n_epochs:
             self.tensorBoardHook.epochNext()
             log.debug("Epoch: %d, Step: %d" % (self.epoch, self.step))
+            print("Epoch: %d, Step: %d" % (self.epoch, self.step))
 
             # Partition next batch for iteartion within curent epoch.
             batch_generator = batch_iterator.__iter__()
 
-            # Consuming batches already seen within the checkpoint.
-            for n in range(self.epoch * steps_per_epoch, self.step):
-                log.info("Skipping batch (epoch={0}, step={1}).".format(self.epoch, n))
-                next(batch_generator)
+            if first_time:
+                first_time = False
+                try:
+                    # Consuming batches already seen within the checkpoint.
+                    for n in range(self.epoch * steps_per_epoch, self.step):
+                        log.info("Skipping batch (epoch={0}, step={1}).".format(self.epoch, n))
+                        next(batch_generator)
+                except StopIteration:
+                    log.info("Skipping batch skipping (epoch={0}, step={1}).".format(self.epoch, n))
+                    print("Skipping batch skipping (epoch={0}, step={1}) due to exception.".format(self.epoch, n))
+                    continue
 
             self.model.train(True)
             for batch in batch_generator:
@@ -389,10 +409,10 @@ class SupervisedTrainer(object):
 
                 # Checkpoint
                 if self.step % self.checkpoint_every == 0 or self.step == total_steps:
-                    checkpointFolder = "{0}{1}Chk{2:04}.{3:05}".format(
+                    checkpointFolder = "{0}{1}Chk{2:06}.{3:07}".format(
                         self.appConfig.training_dir,
                         self.appConfig.runFolder,
-                        int(self.step / steps_per_epoch), # Cur epoch
+                        self.epoch, # Cur epoch
                         self.step)
                     Checkpoint(model=self.model,
                                optimizer=self.optimizer,
@@ -405,21 +425,23 @@ class SupervisedTrainer(object):
                                modelArgs=self.modelArgs
                             ).save(checkpointFolder)
 
-            epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
-            epoch_loss_total = 0
+            if self.step != start_step:
+                epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
+                epoch_loss_total = 0
 
-            log_msg = "Finished epoch %d: Train %s: %.4f" % (self.epoch, self.loss.name, epoch_loss_avg)
-            if dev_data is not None:
-                dev_loss, accuracy = self.evaluator.evaluate(self.model, self.device, dev_data), float('nan')
-                self.optimizer.update(dev_loss, self.epoch)
-                log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
-                self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
-                self.model.train(mode=True)
-            else:
-                self.optimizer.update(epoch_loss_avg, self.epoch)
+                log_msg = "Finished epoch %d: Train %s: %.4f" % (self.epoch, self.loss.name, epoch_loss_avg)
+                if dev_data is not None:
+                    dev_loss, accuracy = self.evaluator.evaluate(self.model, self.device, dev_data), float('nan')
+                    self.optimizer.update(dev_loss, self.epoch)
+                    log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
+                    self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
+                    self.model.train(mode=True)
+                else:
+                    self.optimizer.update(epoch_loss_avg, self.epoch)
+
+                log.info(log_msg)
 
             self.epoch += 1
-            log.info(log_msg)
 
     @methodProfiler
     def _train_batch(self, input_variable, target_variable, target_lengths):
@@ -437,12 +459,18 @@ class SupervisedTrainer(object):
             self.loss.reset()
             n = target_variable.numel()
             self.loss.eval_batch(decoder_outputs.view(n, -1), target_variable.view(n,))
+
         with blockProfiler("Reset model gradient"):
             # Backward propagation
             self.model.zero_grad()
 
+        # Propagate loss backward to update gradients.
         with blockProfiler("Loss Propagation Backward"):
             self.loss.backward()
+
+        # Clip gadients to handle exploding gradients problem.
+        if self.modelArgs.clip_gradient is not None:
+            torch.nn.utils.clip_grad_norm(self.model.parameters(), self.modelArgs.clip_gradient, norm_type=float('inf'))
 
         # Log info into tensorboard.
         for name, param in self.model.named_parameters():

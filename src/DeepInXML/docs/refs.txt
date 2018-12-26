@@ -17,3 +17,10 @@ Neural Machine Translation by Jointly Learning to Align and Translate
 
 Convolutional sequence to sequence learning.
     https://arxiv.org/abs/1705.03122
+
+Generating Sequences With Recurrent Neural Networks.
+    https://arxiv.org/pdf/1308.0850.pdf
+
+Visualizing the Loss Landscape of Neural Nets
+    https://github.com/tomgoldstein/loss-landscape
+    https://arxiv.org/abs/1712.09913

@@ -11,12 +11,16 @@ class Hier2HierExample(torchtext.data.Example):
         self.tgt = outStr
 
 class Hier2HierDataset(torchtext.data.Dataset):
-    def __init__(self, baseFolder='train/folder_1/', fields=None, loader=None, transform=None):
+    def __init__(self, baseFolder='train/folder_1/', fields=None, loader=None, transform=None, selectPercent=None):
         self.baseFolder = baseFolder
 
         # Build input file pairs.
         self.filePairs = []
-        inputFiles = glob.glob(self.baseFolder + "dataIn_*.xml")
+        inputFiles = list(glob.glob(self.baseFolder + "dataIn_*.xml"))
+        inputFiles.sort()
+        if selectPercent is not None:
+            inputFiles = inputFiles[0:int(0.01 * selectPercent * len(inputFiles))]
+        
         for inputFileName in inputFiles:
             index = int(inputFileName[len(self.baseFolder + "dataIn_"):-4])
             outputFileName = self.baseFolder + "dataOut_" + str(index) + ".xml"
