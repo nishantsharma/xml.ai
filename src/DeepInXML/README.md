@@ -18,12 +18,12 @@ Hier2hier is an upcoming area.  The goal of this library is facilitating the dev
 * Support features in the new versions of PyTorch.
 
 # Installation
+
 This package requires Python 3.6. We recommend creating a new virtual environment for this project (using virtualenv or conda).  
 
 ### Prerequisites
 
-* Install python. On Ubuntu,
-  $ sudo apt install python36
+* Install python. Use following commands on MacOS for installation using macports,
   $ sudo port install python36
   $ sudo port install py36-pip
   $ sudo port select --set pip pip36

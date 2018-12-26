@@ -95,12 +95,12 @@ class Checkpoint(object):
             checkpoint (Checkpoint): checkpoint object with fields copied from those stored on disk
         """
         if torch.cuda.is_available():
-            resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME))
-            model = torch.load(os.path.join(path, cls.MODEL_NAME))
+            map_location = lambda storage, loc: storage
         else:
-            resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=lambda storage, loc: storage)
-            model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=lambda storage, loc: storage)
+            map_location = None
 
+        resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=map_location)
+        model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=map_location)
 
         # Extract epoch and step.
         checkpointFolder = os.path.basename(path[0:-1])
@@ -138,19 +138,3 @@ class Checkpoint(object):
                           step=step,
                           batch_size=resume_checkpoint.get('batch_size', 100),
                           modelArgs=modelArgs)
-
-    @classmethod
-    def get_latest_checkpoint(cls, experiment_path):
-        """
-        Given the path to an experiment directory, returns the path to the last saved checkpoint's subdirectory.
-
-        Precondition: at least one checkpoint has been made (i.e., latest checkpoint subdirectory exists).
-        Args:
-            experiment_path (str): path to the experiment directory
-        Returns:
-             str: path to the last saved checkpoint's subdirectory
-        """
-        checkpoints_path = experiment_path + cls.CHECKPOINT_DIR_NAME
-        all_items = sorted(os.listdir(checkpoints_path), reverse=True)
-        all_items = [item for item in all_items if os.path.exists(checkpoints_path + item + "/model.pt")]
-        return os.path.join(checkpoints_path, all_items[0])

@@ -28,7 +28,7 @@ class NodeInfoPropagator(ModuleBase):
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
-        
+
         # Batch norm on propagated info.
         self.batchNormPropagatedInfo = nn.BatchNorm1d(num_features=propagated_info_len)
 
@@ -184,9 +184,8 @@ class NodeInfoPropagator(ModuleBase):
                 0,
                 flatIndicesByDecreasingFanoutInverse)
 
-
         # Undo flat.
-        nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount, self.max_node_count, self.propagated_info_len)
+        nodeInfoPropagated = nodeInfoPropagatedFlat.view(sampleCount, self.max_node_count, self.propagated_info_len)
 
         return nodeInfoPropagated
 

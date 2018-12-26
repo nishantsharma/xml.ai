@@ -150,8 +150,8 @@ class SupervisedTrainer(object):
             if self.modelArgs.clip_gradient is not None:
                 modelArgs.clip_gradient = self.modelArgs.clip_gradient
             elif not hasattr(modelArgs, "clip_gradient"):
-                modelArgs.clip_gradient = None 
-  
+                modelArgs.clip_gradient = None
+
             model.max_output_len = modelArgs.max_output_len
             model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
             model.outputDecoder.max_output_len = modelArgs.max_output_len
@@ -354,7 +354,7 @@ class SupervisedTrainer(object):
             epoch=self.epoch,
             steps_per_epoch=steps_per_epoch)
         step_elapsed = 0
-        
+
         first_time = True
         while self.epoch != self.n_epochs:
             self.tensorBoardHook.epochNext()
