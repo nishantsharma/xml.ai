@@ -25,7 +25,7 @@ class TensorBoardHook(SummaryWriter):
             self._batch = step - (epoch-1)*steps_per_epoch
 
     def add_scalar(self, label, value):
-        if self.periodicity is 0 or self._epoch % self.periodicity != 0:
+        if self.periodicity is 0:
             return
         super().add_scalar(label, value, self._epoch)
 
