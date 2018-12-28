@@ -130,7 +130,8 @@ class SupervisedTrainer(object):
             tgt.eos_id = tgt.vocab.stoi["<eos>"]
             model = resume_checkpoint.model
             model.set_device(device)
-            model.cuda()
+            if device is not None:
+                model.cuda()
 
             optimizer = resume_checkpoint.optimizer
 
