@@ -24,3 +24,10 @@ Generating Sequences With Recurrent Neural Networks.
 Visualizing the Loss Landscape of Neural Nets
     https://github.com/tomgoldstein/loss-landscape
     https://arxiv.org/abs/1712.09913
+
+Show, Attend and Tell: Captions using attention.
+    Incredibly critical motivation for the design.
+    https://arxiv.org/pdf/1502.03044.pdf
+
+Attention is all you need.
+    https://arxiv.org/pdf/1706.03762.pdf

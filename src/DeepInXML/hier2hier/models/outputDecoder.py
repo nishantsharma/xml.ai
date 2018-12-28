@@ -66,6 +66,12 @@ class OutputDecoder(BaseRNN):
         self.output_vocab = output_vocab
         self.runtests = runtests
 
+        # Parameters required for loop initialization.
+        self.initGruOutput = nn.Parameter(torch.zeros(self.output_decoder_state_width, ))
+        self.buildInitGruState = nn.Linear(
+            self.propagated_info_len,
+            self.output_decoder_stack_depth  * self.output_decoder_state_width)
+
     @torch.no_grad()
     def test_forward(self,
             treeIndex2NodeIndex2NbrIndices,
@@ -80,24 +86,17 @@ class OutputDecoder(BaseRNN):
         outputSymbolsTensor = []
         outputSymbols = []
         for treeIndex in range(treeCount):
-            # Current GRU state starts as all 0.
-            curGruState = torch.zeros((
-                self.output_decoder_stack_depth,
-                1,
-                self.output_decoder_state_width,), device=self.device)
-
-            # Build symbol loop input.
+            # Start symbol.
             curSymbol = self.sos_id
             curSymbolTensor = torch.tensor(
                 [onehotencode(len(self.output_vocab), curSymbol)],
                 device=self.device)
 
+            # Initial gruOutput to emulate.
+            curGruOutput = self.initGruOutput.view(1, 1, -1)
 
-            # Initialize cur attention by paying attention to the root node.
-            # For each tree, the first node is root and hence it is the parent of itself.
-            curAttention = torch.tensor(
-                [onehotencode(self.max_node_count, 0)],
-                device=self.device)
+            # Initialize curGruState to None. It is updated within the loop, again.
+            curGruState = None
 
             # Check if teaching is being forced.
             if not duringTraining or teacherForcedSelections is None:
@@ -110,22 +109,36 @@ class OutputDecoder(BaseRNN):
 
             nodeInfosPropagated = nodeInfoPropagatedTensor[treeIndex]
             maxSymbolIndex = -1
-            for symbolIndex in range(0, self.max_output_len):
+            for symbolIndex in range(self.max_output_len):
+                # Compute next attention.
+                curAttention = self.decodeAttention(
+                    nodeInfosPropagated.view(1, 1, -1),
+                    curGruOutput)
+                
                 # Compute node info summary to use in computation.
-                nodeInfoToAttend = torch.mm(
+                propagatedNodeInfoToAttend = torch.mm(
                         curAttention,
-                        nodeInfosPropagated
+                        nodeInfosPropagated,
                     ).view(1, -1)
 
                 # Build GRU Input.
-                curGruInput = torch.cat([nodeInfoToAttend, curSymbolTensor], -1)
+                curGruInput = torch.cat([propagatedNodeInfoToAttend, curSymbolTensor], -1)
                 curGruInput = curGruInput.view(1, 1, self.gruInputLen)
 
+                # For first iteration, we also need to build GRU State.
+                if curGruState is None:
+                    curGruState = self.buildInitGruState(propagatedNodeInfoToAttend)
+                    curGruState = curGruState.view(
+                        self.output_decoder_stack_depth,
+                        1,
+                        self.output_decoder_state_width,
+                    )
+
                 # RUn GRU logic.
-                curOutput, curGruState = self.gruCell(curGruInput, curGruState)
+                curGruOutput, curGruState = self.gruCell(curGruInput, curGruState)
 
                 # Compute next symbol tensor.
-                generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curOutput))
+                generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
                 generatedSymbolTensor = generatedSymbolTensor.view(1, len(self.output_vocab))
                 treeOutputSymbolsTensor.append(generatedSymbolTensor)
 
@@ -148,15 +161,10 @@ class OutputDecoder(BaseRNN):
                     maxSymbolIndex = max(maxSymbolIndex, symbolIndex)
                     break
 
+
                 ###################################################################
                 ##### LOOP ITERATION COMPLETE. Now preping for next iteration #####
-                ###################################################################
-
-                # Compute next attention.
-                curAttention = self.decodeAttention(
-                    nodeInfosPropagated.view(1, 1, -1),
-                    curOutput)
-                
+                ###################################################################                
                 if teacherForced:
                     curSymbolTensor = onehotencode(
                         len(self.output_vocab),
@@ -245,61 +253,57 @@ class OutputDecoder(BaseRNN):
                 targetLengthsOrder.sort(key=lambda i:-targetLengths[i])
                 targetLengthsOrder = torch.tensor(targetLengthsOrder, dtype=torch.long, device=self.device)
 
+                # Re-arrange nodeInfoPropagatedTensor in target lengths order.
                 nodeInfoPropagatedTensor = torch.index_select(
                     nodeInfoPropagatedTensor,
                     0,
                     targetLengthsOrder)
 
+                # Re-arrange targetOutput and targetLengths in target lengths order.
                 targetOutput = torch.index_select(targetOutput, 0, targetLengthsOrder)
                 targetLengths = torch.index_select(targetLengths, 0, targetLengthsOrder)
+
+                # Get the inverse of the TL order.
                 targetLengthsOrderInverse = torch.tensor(
                     invertPermutation(targetLengthsOrder),
                     dtype=torch.long,
                     device=self.device,
                 )
+
+                # Get inverse of the TL order.
                 dimSqueezePoints = self.computeDimSqueezePoints(targetLengths)
             else:
+                # Target lengths are unknown. Emulate with what we have.
                 targetLengthsOrderInverse = torch.tensor(
                     list(range(self.max_output_len)),
                     dtype=torch.long)
                 dimSqueezePoints = [(self.max_output_len, sampleCount)]
 
-            for i in range(sampleCount):
-                # For each sample, the first node is root and hence it is the parent of itself.
-                assert(treeIndex2NodeIndex2NbrIndices[i][0][0] == 0)
-
-            # Initialize cur attention by paying attention to the root node.
-            curAttention = torch.tensor(
-                [
-                    onehotencode(self.max_node_count, 0) for _ in range(sampleCount)
-                ],
-                device=self.device
-            )
-
-            # Current GRU state starts as all 0.
-            curGruState = torch.zeros((
-                self.output_decoder_stack_depth,
-                sampleCount,
-                self.output_decoder_state_width,), device=self.device)
-
-            # Build symbol loop input.
+            # Build first symbol input of the loop.
+            curSymbol = self.sos_id
             curSymbolTensor = torch.tensor(
                 [
-                    onehotencode(len(self.output_vocab), self.sos_id)
+                    onehotencode(len(self.output_vocab), curSymbol)
                     for _ in range(sampleCount)
                 ],
                 device=self.device
             )
 
-            # Init output vars.
-            outputSymbolTensors = [ ]
-            outputSymbols = None if duringTraining else [ ]
+            # Build first GruOutput of the loop.
+            curGruOutput = torch.cat([self.initGruOutput.view(1, -1) for _ in range(sampleCount)])
+
+            # GruState is initialized within the loop.
+            curGruState = None
 
             # It is 1 at sampleIndex when teaching is being forced, else 0.
             teacherForcedSelections = [
                 True if random.random() < self.teacher_forcing_ratio else False
                 for n in range(sampleCount)
             ]
+
+            # Init output vars.
+            outputSymbolTensors = [ ]
+            outputSymbols = None if duringTraining else [ ]
 
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
@@ -308,6 +312,7 @@ class OutputDecoder(BaseRNN):
                     curAttention = curAttention.narrow(0, 0, sampleIndexLimit)
                     curSymbolTensor = curSymbolTensor.narrow(0, 0, sampleIndexLimit)
                     curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
+                    curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
                     nodeInfoPropagatedTensor = nodeInfoPropagatedTensor.narrow(0, 0, sampleIndexLimit)
                     if targetOutput is not None:
                         targetOutput = targetOutput.narrow(0, 0, sampleIndexLimit)
@@ -323,33 +328,47 @@ class OutputDecoder(BaseRNN):
                 )
 
                 while True:
-                    symbolIndex = len(outputSymbolTensors)
- 
+                    # Current symbol index can be determined by looking at output lists.
+                    symbolIndex = len(outputSymbolTensors) 
                     if symbolIndex == outputIndexLimit:
                         # We are crossing output index limit. So, this loop is over.
                         break
 
+                    # Compute next attention.
+                    with blockProfiler("ATTENTION-DECODE"):
+                        curAttention = self.decodeAttention(nodeInfoPropagatedTensor, curGruOutput)
+
                     with blockProfiler("BMM"):
-                        nodeInfoToAttend = torch.bmm(
+                        propagatedNodeInfoToAttend = torch.bmm(
                                 curAttention.view(sampleIndexLimit, 1, self.max_node_count),
-                                nodeInfoPropagatedTensor
+                                nodeInfoPropagatedTensor,
                             ).view(sampleIndexLimit, self.propagated_info_len)
 
                     with blockProfiler("CATVIEW"):
-                        curGruInput = torch.cat([nodeInfoToAttend, curSymbolTensor], -1)
+                        curGruInput = torch.cat([propagatedNodeInfoToAttend, curSymbolTensor], -1)
                         curGruInput = curGruInput.view(sampleIndexLimit, 1, self.gruInputLen)
 
+                    if curGruState is None:
+                        with blockProfiler("BuildInitGruState"):
+                            curGruState = self.buildInitGruState(propagatedNodeInfoToAttend)
+                            curGruState = curGruState.view(
+                                sampleCount,
+                                self.output_decoder_stack_depth,
+                                self.output_decoder_state_width,
+                            ).permute(1, 0, 2)
+
                     with blockProfiler("GRUCELL1"):
-                        curGruStateContiguous = curGruState.contiguous()
+                        curGruStateContiguous = curGruState.contiguous()                        
                         
+                    # Cycle RNN state.
                     with blockProfiler("GRUCELL2"):
                         tensorBoardHook.add_histogram("OutputDecoderGru.Input", curGruInput)
                         tensorBoardHook.add_histogram("OutputDecoderGru.State", curGruStateContiguous)
-                        curOutput, curGruState = self.gruCell(curGruInput, curGruStateContiguous)
+                        curGruOutput, curGruState = self.gruCell(curGruInput, curGruStateContiguous)
 
                     # Compute next symbol.
                     with blockProfiler("SYMBOL-DECODE"):
-                        generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curOutput))
+                        generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
                         generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.output_vocab))
                         outputSymbolTensors.append(generatedSymbolTensor)
 
@@ -359,6 +378,7 @@ class OutputDecoder(BaseRNN):
                             generatedSymbol = [int(symbol) for symbol in generatedSymbolTensor.topk(1)[1].view(sampleIndexLimit)]
                             outputSymbols.append(generatedSymbol)
 
+
                     ###########################################################################
                     ##### CURRENT LOOP ITERATION COMPLETE. Now preping for next iteration #####
                     ###########################################################################
@@ -366,10 +386,6 @@ class OutputDecoder(BaseRNN):
                     if duringTraining and symbolIndex == targetOutput.shape[1]-1:
                         # We are crossing output index limit. So, this loop is over.
                         break
-
-                    # Compute next attention.
-                    with blockProfiler("ATTENTION-DECODE"):
-                        curAttention = self.decodeAttention(nodeInfoPropagatedTensor, curOutput)
 
                     if duringTraining:
                         with blockProfiler("TEACHER-FORCING"):
@@ -384,7 +400,6 @@ class OutputDecoder(BaseRNN):
                             curSymbolTensor = torch.index_select(concatedSymbolTensors, 0, teacherForcingApplicator)
                     else:
                         curSymbolTensor = generatedSymbolTensor
-
 
         with blockProfiler("ProcessPostLoop"):
             symbolColumnsCount = len(outputSymbolTensors)

@@ -118,6 +118,8 @@ def loadConfig(mode):
                         help="Learning rate to use during training.")
     parser.add_argument('--clip_gradient', type=float, default=None,
                         help='gradient clipping') 
+    parser.add_argument("--disable_batch_norm", type = str2bool, default = False,
+                        help="Disable batch norm. Needed for running some tests.")
 
     # Parse args to build app config dictionary.
     appConfig = parser.parse_args()
@@ -136,7 +138,7 @@ def loadConfig(mode):
 
                 # Other meta-parameters of the generated neural network.
                 "input_dropout_p", "dropout_p", "use_attention", "teacher_forcing_ratio", "learning_rate",
-                "clip_gradient",
+                "clip_gradient", "disable_batch_norm",
             ]
         )
 

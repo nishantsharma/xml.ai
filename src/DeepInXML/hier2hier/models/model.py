@@ -55,6 +55,7 @@ class Hier2hier(ModuleBase):
             modelArgs.propagated_info_len,
             modelArgs.max_node_count,
             modelArgs.node_info_propagator_stack_depth,
+            modelArgs.disable_batch_norm,
             device=device)
 
         self.outputDecoder = OutputDecoder(
@@ -119,17 +120,19 @@ class Hier2hier(ModuleBase):
                     curNodeChildrenList.append(node2Index[childNode])
 
 
-        nodeInfoTensor = self.nodeInfoEncoder(
+        nodeInfoEncodedTensor = self.nodeInfoEncoder(
                 node2Index,
                 node2Parent,
                 xmlTreeList,
                 tensorBoardHook,
                 )
+
         nodeInfoPropagatedTensor = self.nodeInfoPropagator(
                 treeIndex2NodeIndex2NbrIndices,
-                nodeInfoTensor,
+                nodeInfoEncodedTensor,
                 tensorBoardHook,
                 )
+
         (
             outputSymbolTensors,
             outputSymbols,
@@ -145,7 +148,7 @@ class Hier2hier(ModuleBase):
 
         if self.debug.runtests:
             nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)
-            nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoTensor)
+            nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoEncodedTensor)
             decoderTestTensors2  = self.outputDecoder.test_forward(
                 treeIndex2NodeIndex2NbrIndices,
                 nodeInfoPropagatedTensor,
@@ -153,10 +156,12 @@ class Hier2hier(ModuleBase):
                 target_lengths,
                 teacherForcedSelections)
 
-            diffSum1 = float(torch.sum(abs(nodeInfoTensor2-nodeInfoTensor).view(-1)))
+            diffSum1 = float(torch.sum(abs(nodeInfoTensor2-nodeInfoEncodedTensor).view(-1)))
             diffSum2 = float(torch.sum(abs(nodeInfoPropagatedTensor2-nodeInfoPropagatedTensor).view(-1)))
             diffSum3 = float(torch.sum(abs(decoderTestTensors2-decoderTestTensors).view(-1)))
 
+            if self.debug.runtests and not self.nodeInfoPropagator.disable_batch_norm:
+                print("For properly testing nodeInfoPropagator, disable batch norm by configuring with --disable_batch_norm.")
             print("{0}: diffSums {1:.6f}, {2:.6f}, {3:.6f}".format(
                 Hier2hier.n, diffSum1, diffSum2, diffSum3))
             if Hier2hier.n % 100 == 99:

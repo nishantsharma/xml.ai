@@ -19,18 +19,21 @@ class NodeInfoPropagator(ModuleBase):
             propagated_info_len,
             max_node_count,
             node_info_propagator_stack_depth,
+            disable_batch_norm,
             device=None):
         super().__init__(device)
         self.encoded_node_vec_len = encoded_node_vec_len
         self.propagated_info_len = propagated_info_len
         self.max_node_count = max_node_count
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
+        self.disable_batch_norm = disable_batch_norm
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
 
         # Batch norm on propagated info.
-        self.batchNormPropagatedInfo = nn.BatchNorm1d(num_features=propagated_info_len)
+        if not self.disable_batch_norm:
+            self.batchNormPropagatedInfo = nn.BatchNorm1d(num_features=propagated_info_len)
 
         # Ops to apply while propagating parent and neighbor info.
         self.parentOp = nn.Linear(self.propagated_info_len, self.propagated_info_len)
@@ -42,6 +45,8 @@ class NodeInfoPropagator(ModuleBase):
     @torch.no_grad()
     def test_forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
+        if not self.disable_batch_norm:
+            nodeInfoPropagated = self.batchNormPropagatedInfo(nodeInfoPropagated)
         return nodeInfoPropagated
 
     @methodProfiler
@@ -127,7 +132,8 @@ class NodeInfoPropagator(ModuleBase):
         nodeInfoPropagatedFlat = nodeInfoPropagated.view(sampleCount*self.max_node_count, self.propagated_info_len)
 
         # Apply batch norm.
-        nodeInfoPropagatedFlat = self.batchNormPropagatedInfo(nodeInfoPropagatedFlat)
+        if not self.disable_batch_norm:
+            nodeInfoPropagatedFlat = self.batchNormPropagatedInfo(nodeInfoPropagatedFlat)
 
         # Run propagation loop.
         if False:
