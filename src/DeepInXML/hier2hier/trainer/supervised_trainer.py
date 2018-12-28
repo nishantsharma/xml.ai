@@ -130,6 +130,7 @@ class SupervisedTrainer(object):
             tgt.eos_id = tgt.vocab.stoi["<eos>"]
             model = resume_checkpoint.model
             model.set_device(device)
+            model.cuda()
 
             optimizer = resume_checkpoint.optimizer
 
@@ -404,6 +405,7 @@ class SupervisedTrainer(object):
                         self.print_every,
                         print_loss_avg)
                     log.info(log_msg)
+                    print(log_msg)
 
                     print_loss_total = 0
 

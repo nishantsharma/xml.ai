@@ -49,20 +49,20 @@ class EncoderRNN(BaseRNN):
     """
     def __init__(self, vocab_size, max_len, input_size, hidden_size,
             input_dropout_p=0, dropout_p=0, n_layers=1, bidirectional=False, rnn_cell="gru", variable_lengths=False,
-            embedding=None, update_embedding=False, device=None):
+            doEmbed=True, update_embedding=False, device=None):
         super().__init__(vocab_size, max_len, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, device)
         
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.variable_lengths = variable_lengths
-        if embedding is not None:
+        self.vocab = torch.eye(vocab_size, device=device)
+        if doEmbed:
             self.embedding = nn.Embedding(vocab_size, input_size)
-            self.embedding.weight = nn.Parameter(embedding)
+            self.embedding.weight = nn.Parameter(self.vocab)
             self.embedding.weight.requires_grad = update_embedding
             self.rnn_input_size = input_size
         else:
             self.embedding = None
-            self.vocab = torch.eye(vocab_size, device=device)
 
             self.rnn_input_size = vocab_size
         self.rnn = self.rnn_cell(self.rnn_input_size, hidden_size, n_layers,
@@ -97,6 +97,7 @@ class EncoderRNN(BaseRNN):
 
         # Run the RNN.
         output, hidden = self.rnn(embedded)
+
         if self.variable_lengths:
             output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
 

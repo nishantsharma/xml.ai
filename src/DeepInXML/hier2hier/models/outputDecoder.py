@@ -52,7 +52,7 @@ class OutputDecoder(BaseRNN):
         self.decode_function = F.log_softmax
         self.init_input = None
 
-        self.symbolsTensor = torch.eye(len(output_vocab), device=self.device)
+        self.symbolsTensor = nn.Parameter(torch.eye(len(output_vocab), device=self.device), requires_grad=False)
 
         # self.embedding = nn.Embedding(self.output_size, self.output_size)
 
