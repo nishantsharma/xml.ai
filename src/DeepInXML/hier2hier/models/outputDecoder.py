@@ -243,10 +243,13 @@ class OutputDecoder(BaseRNN):
             targetOutput,
             targetLengths,
             tensorBoardHook,
+            collectOutput=None
         ):
         sampleCount = len(nodeInfoPropagatedTensor)
         with blockProfiler("ProcessPreLoop"):
             duringTraining = targetOutput is not None
+            if collectOutput is None:
+                collectOutput = not(duringTraining)
             if duringTraining:
                 # Obtain trees in the decreasing targetOutput size order.
                 targetLengthsOrder = list(range(len(targetOutput)))
@@ -303,7 +306,7 @@ class OutputDecoder(BaseRNN):
 
             # Init output vars.
             outputSymbolTensors = [ ]
-            outputSymbols = None if duringTraining else [ ]
+            outputSymbols = [ ] if collectOutput else None
 
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
@@ -373,7 +376,7 @@ class OutputDecoder(BaseRNN):
                         outputSymbolTensors.append(generatedSymbolTensor)
 
                     # Compute next symbol list.
-                    if not duringTraining:
+                    if collectOutput:
                         with blockProfiler("TOPK"):
                             generatedSymbol = [int(symbol) for symbol in generatedSymbolTensor.topk(1)[1].view(sampleIndexLimit)]
                             outputSymbols.append(generatedSymbol)

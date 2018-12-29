@@ -119,7 +119,6 @@ class Hier2hier(ModuleBase):
                     nodeIndex2NbrIndices[node2Index[childNode]] = (node2Index[node], [])
                     curNodeChildrenList.append(node2Index[childNode])
 
-
         nodeInfoEncodedTensor = self.nodeInfoEncoder(
                 node2Index,
                 node2Parent,

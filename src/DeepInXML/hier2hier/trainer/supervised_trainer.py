@@ -355,7 +355,6 @@ class SupervisedTrainer(object):
             step=self.step,
             epoch=self.epoch,
             steps_per_epoch=steps_per_epoch)
-        step_elapsed = 0
 
         first_time = True
         while self.epoch != self.n_epochs:
@@ -382,7 +381,6 @@ class SupervisedTrainer(object):
             for batch in batch_generator:
                 self.tensorBoardHook.batchNext()
                 self.step += 1
-                step_elapsed += 1
                 self.tensorBoardHook.batch = self.step % steps_per_epoch
 
                 input_variables = getattr(batch, hier2hier.src_field_name)
@@ -397,7 +395,7 @@ class SupervisedTrainer(object):
                 print_loss_total += loss
                 epoch_loss_total += loss
 
-                if self.step % self.print_every == 0 and step_elapsed > self.print_every:
+                if self.step % self.print_every == 0:
                     print_loss_avg = print_loss_total / self.print_every
                     log_msg = 'Progress: %d%%, Train %s: %.4f/%d=%.4f' % (
                         self.step / total_steps * 100,
