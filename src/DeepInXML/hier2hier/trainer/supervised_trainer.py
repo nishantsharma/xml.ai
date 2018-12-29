@@ -428,6 +428,8 @@ class SupervisedTrainer(object):
 
             if self.step != start_step:
                 epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
+                self.tensorBoardHook.add_scalar("loss", epoch_loss_avg)
+
                 epoch_loss_total = 0
 
                 log_msg = "Finished epoch %d: Train %s: %.4f" % (self.epoch, self.loss.name, epoch_loss_avg)
@@ -484,7 +486,5 @@ class SupervisedTrainer(object):
 
         with blockProfiler("Compute loss"):
             loss = self.loss.get_loss()
-
-        self.tensorBoardHook.add_scalar("loss", loss)
 
         return loss

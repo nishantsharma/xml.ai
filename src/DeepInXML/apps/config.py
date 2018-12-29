@@ -48,7 +48,7 @@ def loadConfig(mode):
     # Randomizaion settings.
     parser.add_argument('--random_seed', dest='random_seed',
                         default=None,
-                        help='Randomg seed to apply before the training start.')
+                        help='Random seed to use before start of the training.')
 
     # Various logging and debug settings.
     parser.add_argument('--log_level', dest='log_level',
@@ -78,7 +78,7 @@ def loadConfig(mode):
     parser.add_argument("--max_node_count", type = int, default = None,
                         help="Maximum number of nodes in an XML file.")
     parser.add_argument("--total_attrs_count", type = int, default = None,
-                        help="Total number of known attributes in the schema..")
+                        help="Total number of known attributes in the schema.")
     parser.add_argument("--value_symbols_count", type = int, default = None,
                         help="Total number of symbols used in attribute value strings.")
     parser.add_argument("--max_node_fanout", type = int, default = None,
