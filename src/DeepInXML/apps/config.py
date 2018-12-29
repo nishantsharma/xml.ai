@@ -98,11 +98,11 @@ def loadConfig(mode):
     parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 12,
                         help="Depth of the graph layer stack. This determines the number of "
                         + "hops that information would propagate in the graph inside nodeInfoPropagator.")
-    parser.add_argument("--propagated_info_len", type = int, default = 64,
+    parser.add_argument("--propagated_info_len", type = int, default = 128,
                         help="Length of node information vector, when being propagated.")
-    parser.add_argument("--output_decoder_stack_depth", type = int, default = 3,
+    parser.add_argument("--output_decoder_stack_depth", type = int, default = 1,
                         help="Stack depth of node decoder.")
-    parser.add_argument("--output_decoder_state_width", type = int, default = 32,
+    parser.add_argument("--output_decoder_state_width", type = int, default = 100,
                         help="Width of GRU cell in output decoder.")
 
     # Other meta-parameters for training the neural network.
