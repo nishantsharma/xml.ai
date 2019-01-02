@@ -31,3 +31,6 @@ Show, Attend and Tell: Captions using attention.
 
 Attention is all you need.
     https://arxiv.org/pdf/1706.03762.pdf
+
+Beam Search Optimization during training time
+    https://arxiv.org/pdf/1606.02960.pdf

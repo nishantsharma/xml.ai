@@ -117,13 +117,16 @@ def loadConfig(mode):
     parser.add_argument("--learning_rate", type = float, default = 0.001,
                         help="Learning rate to use during training.")
     parser.add_argument('--clip_gradient', type=float, default=None,
-                        help='gradient clipping') 
+                        help='gradient clipping')
     parser.add_argument("--disable_batch_norm", type = str2bool, default = False,
                         help="Disable batch norm. Needed for running some tests.")
+    if mode == AppMode.Evaluate:
+        parser.add_argument("--beam_count", type = int, default = None,
+                        help="Number of beams to use when decoding. Leave as None for not using beam decoding.")
 
     # Parse args to build app config dictionary.
     appConfig = parser.parse_args()
-    
+
     # Spin out model arguments from app configuration.
     modelArgs = levelDown(appConfig,
             "modelArgs",

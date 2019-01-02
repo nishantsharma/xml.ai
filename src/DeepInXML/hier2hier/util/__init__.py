@@ -62,7 +62,16 @@ def levelDown(parsedArgs, label, keys):
         """
         lowerLevelDict = AttrDict()
         for key in keys:
-            lowerLevelDict[key] = getattr(parsedArgs, key)
-            delattr(parsedArgs, key)
+            if hasattr(parsedArgs, key):
+                lowerLevelDict[key] = getattr(parsedArgs, key)
+                delattr(parsedArgs, key)
 
         return lowerLevelDict
+
+def batched_index_select(input, dim, index):
+    views = [input.shape[0]] + [1 if i != dim else -1 for i in range(1, len(input.shape))]
+    expanse = list(input.shape)
+    expanse[0] = -1
+    expanse[dim] = -1
+    index = index.view(views).expand(expanse)
+    return torch.gather(input, dim, index)

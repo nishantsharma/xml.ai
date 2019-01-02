@@ -58,7 +58,7 @@ for i, singleton_batch in enumerate(test_batch_iterator):
     tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
 
     try:
-        _, predicted_text_outputs = h2hModel(singleton_batch.src)
+        _, predicted_text_outputs = h2hModel(singleton_batch.src, beam_count=appConfig.beam_count)
         predicted_text_outputs = trainer.decodeOutput(predicted_text_outputs)
     except ValueError as v:
         predicted_text_outputs = v

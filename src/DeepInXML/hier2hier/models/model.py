@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile, nullTensorBoardHook
 
-from .moduleBase import ModuleBase 
+from .moduleBase import ModuleBase
 from .nodeInfoEncoder import NodeInfoEncoder
 from .nodeInfoPropagator import NodeInfoPropagator
 from .outputDecoder import OutputDecoder
@@ -84,6 +84,7 @@ class Hier2hier(ModuleBase):
             xmlTreeList,
             targetOutput=None,
             target_lengths=None,
+            beam_count=None,
             tensorBoardHook=None,
             ):
         if tensorBoardHook is None:
@@ -138,18 +139,17 @@ class Hier2hier(ModuleBase):
             teacherForcedSelections,
             decoderTestTensors
         ) = self.outputDecoder(
-                treeIndex2NodeIndex2NbrIndices,
                 nodeInfoPropagatedTensor,
                 targetOutput,
                 target_lengths,
                 tensorBoardHook,
+                beam_count=beam_count,
             )
 
         if self.debug.runtests:
             nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)
             nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoEncodedTensor)
             decoderTestTensors2  = self.outputDecoder.test_forward(
-                treeIndex2NodeIndex2NbrIndices,
                 nodeInfoPropagatedTensor,
                 targetOutput,
                 target_lengths,

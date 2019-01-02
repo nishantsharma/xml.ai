@@ -9,6 +9,7 @@ from torch import optim
 import torch.nn.functional as F
 from .baseRNN import BaseRNN
 from .attention import Attention
+from .beamSearch import BeamSearch
 from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockProfiler,
                             methodProfiler, lastCallProfile)
 import torch.nn.functional as F
@@ -49,9 +50,6 @@ class OutputDecoder(BaseRNN):
             batch_first=True,
             dropout=dropout_p)
 
-        self.decode_function = F.log_softmax
-        self.init_input = None
-
         self.symbolsTensor = nn.Parameter(torch.eye(len(output_vocab), device=self.device), requires_grad=False)
 
         # self.embedding = nn.Embedding(self.output_size, self.output_size)
@@ -74,7 +72,6 @@ class OutputDecoder(BaseRNN):
 
     @torch.no_grad()
     def test_forward(self,
-            treeIndex2NodeIndex2NbrIndices,
             nodeInfoPropagatedTensor,
             targetOutput=None,
             targetLengths=None,
@@ -114,7 +111,7 @@ class OutputDecoder(BaseRNN):
                 curAttention = self.decodeAttention(
                     nodeInfosPropagated.view(1, 1, -1),
                     curGruOutput)
-                
+
                 # Compute node info summary to use in computation.
                 propagatedNodeInfoToAttend = torch.mm(
                         curAttention,
@@ -164,7 +161,7 @@ class OutputDecoder(BaseRNN):
 
                 ###################################################################
                 ##### LOOP ITERATION COMPLETE. Now preping for next iteration #####
-                ###################################################################                
+                ###################################################################
                 if teacherForced:
                     curSymbolTensor = onehotencode(
                         len(self.output_vocab),
@@ -238,18 +235,21 @@ class OutputDecoder(BaseRNN):
 
     @methodProfiler
     def forward(self,
-            treeIndex2NodeIndex2NbrIndices,
             nodeInfoPropagatedTensor,
             targetOutput,
             targetLengths,
             tensorBoardHook,
-            collectOutput=None
+            collectOutput=None,
+            beam_count=None,
         ):
+        duringTraining = targetOutput is not None
+        if collectOutput is None:
+            collectOutput = not(duringTraining)
+        if not duringTraining and beam_count is not None:
+            return self.beamSearch(nodeInfoPropagatedTensor, beam_count)
+
         sampleCount = len(nodeInfoPropagatedTensor)
         with blockProfiler("ProcessPreLoop"):
-            duringTraining = targetOutput is not None
-            if collectOutput is None:
-                collectOutput = not(duringTraining)
             if duringTraining:
                 # Obtain trees in the decreasing targetOutput size order.
                 targetLengthsOrder = list(range(len(targetOutput)))
@@ -299,20 +299,25 @@ class OutputDecoder(BaseRNN):
             curGruState = None
 
             # It is 1 at sampleIndex when teaching is being forced, else 0.
-            teacherForcedSelections = [
-                True if random.random() < self.teacher_forcing_ratio else False
-                for n in range(sampleCount)
-            ]
+            if duringTraining:
+                teacherForcedSelections = [
+                    True if random.random() < self.teacher_forcing_ratio else False
+                    for n in range(sampleCount)
+                ]
+            else:
+                teacherForcedSelections = None
 
             # Init output vars.
-            outputSymbolTensors = [ ]
-            outputSymbols = [ ] if collectOutput else None
+            outputSymbolTensors = [ curSymbolTensor ]
+            if collectOutput:
+                outputSymbols = [ [self.sos_id] for _ in range(sampleCount) ]
+            else:
+                outputSymbols = None
 
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
                 if nodeInfoPropagatedTensor.shape[0] != sampleIndexLimit:
                     # Clip loop variables, restricting sample indices to sampleIndexLimit.
-                    curAttention = curAttention.narrow(0, 0, sampleIndexLimit)
                     curSymbolTensor = curSymbolTensor.narrow(0, 0, sampleIndexLimit)
                     curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
                     curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
@@ -320,19 +325,20 @@ class OutputDecoder(BaseRNN):
                     if targetOutput is not None:
                         targetOutput = targetOutput.narrow(0, 0, sampleIndexLimit)
 
-                # Logic for applying 
-                teacherForcingApplicator = torch.tensor(
-                    [
-                        n + teacherForcedSelections[n] * sampleIndexLimit
-                        for n in range(sampleIndexLimit)
-                    ],
-                    dtype=torch.long,
-                    device=self.device,
-                )
+                # Logic for applying
+                if duringTraining:
+                    teacherForcingApplicator = torch.tensor(
+                        [
+                            n + teacherForcedSelections[n] * sampleIndexLimit
+                            for n in range(sampleIndexLimit)
+                        ],
+                        dtype=torch.long,
+                        device=self.device,
+                    )
 
                 while True:
                     # Current symbol index can be determined by looking at output lists.
-                    symbolIndex = len(outputSymbolTensors) 
+                    symbolIndex = len(outputSymbolTensors)
                     if symbolIndex == outputIndexLimit:
                         # We are crossing output index limit. So, this loop is over.
                         break
@@ -361,8 +367,8 @@ class OutputDecoder(BaseRNN):
                             ).permute(1, 0, 2)
 
                     with blockProfiler("GRUCELL1"):
-                        curGruStateContiguous = curGruState.contiguous()                        
-                        
+                        curGruStateContiguous = curGruState.contiguous()
+
                     # Cycle RNN state.
                     with blockProfiler("GRUCELL2"):
                         tensorBoardHook.add_histogram("OutputDecoderGru.Input", curGruInput)
@@ -419,7 +425,7 @@ class OutputDecoder(BaseRNN):
                 paddingNeeded = sampleCount-len(curSymbolTensorColumn)
                 if paddingNeeded:
                     outputSymbolTensors[i] = torch.cat(
-                        [curSymbolTensorColumn] 
+                        [curSymbolTensorColumn]
                         + [ padTensor for _ in range(paddingNeeded)]
                     )
 
@@ -431,7 +437,7 @@ class OutputDecoder(BaseRNN):
                 1 # Concat along second dimension.
             )
 
-            # During training, we permute the columns 
+            # During training, we permute the columns
             if duringTraining:
                 outputSymbolTensors = torch.index_select(outputSymbolTensors, 0, targetLengthsOrderInverse)
 
@@ -453,3 +459,127 @@ class OutputDecoder(BaseRNN):
 
             checkNans(outputSymbolTensors)
             return outputSymbolTensors, outputSymbols, teacherForcedSelections, decoderTestTensors
+
+    def beamSearch(self, nodeInfoPropagatedTensor, beam_count):
+        sampleCount = nodeInfoPropagatedTensor.shape[0]
+        bigSampleCount = sampleCount * beam_count
+        # Build first GruOutput to kickstart the loop.
+        initGruOutput = torch.cat([self.initGruOutput.view(1, -1) for _ in range(sampleCount)])
+
+        initGruState = None
+
+        # Give the beam dimension to nodeInfoPropagatedTensor.
+        nodeInfoPropagatedExpandedTensor = nodeInfoPropagatedTensor.view(
+            sampleCount,
+            1,
+            self.max_node_count,
+            self.propagated_info_len,
+        ).expand(
+            -1, beam_count, -1, -1
+        )
+
+        def decoderModel(prevBeamStatesTuple, prevBeamSymbols):
+            """
+                Method representing the output decoder training to the beamSearch method,
+                Inputs:
+                    prevBeamStatesTuple:
+                        Tuple (prevGruOutput, prevGruState)
+                        prevGruOutput:
+                            Shape: SampleCount * beamCount * GruOutputVecLen
+                        prevGruState:
+                            Shape: SampleCount * beamCount * GruStateVecLen
+                    prevBeamSymbolsIn:
+                        Shape: sampleCount * beamCount
+                        Data: ID of the beam symbol output in the last iteration.
+                Outputs:
+                    curBeamStatesOut:
+                        Tuple (curGruOutput, curGruState)
+                    curBeamSymbolProbsOut:
+                        Shape: sampleCount * beamCount * vocabLen
+                        Data: Values to be treated as log probabilities.
+            """
+            sampleCount, beamCount = prevBeamSymbols.shape
+            vocabLen = self.symbolsTensor.shape[0]
+            bigSampleCount = sampleCount * beamCount
+            (prevGruOutput, prevGruState) = prevBeamStatesTuple
+
+            if beamCount != nodeInfoPropagatedExpandedTensor.shape[1]:
+                assert(beamCount < nodeInfoPropagatedExpandedTensor.shape[1])
+                nodeInfoPropagatedBeamTensor = nodeInfoPropagatedExpandedTensor[:, 0:beamCount, :, :]
+            else:
+                nodeInfoPropagatedBeamTensor = nodeInfoPropagatedExpandedTensor
+
+            nodeInfoPropagatedBeamTensor = nodeInfoPropagatedBeamTensor.view(
+                bigSampleCount,
+                self.max_node_count,
+                self.propagated_info_len,
+            )
+            prevGruOutput = prevGruOutput.view(
+                bigSampleCount,
+                self.max_node_count,
+                self.output_decoder_state_width)
+            curAttention = self.decodeAttention(nodeInfoPropagatedBeamTensor, prevGruOutput)
+
+            propagatedNodeInfoToAttend = torch.bmm(
+                    curAttention.view(bigSampleCount, 1, self.max_node_count),
+                    nodeInfoPropagatedBeamTensor,
+                ).view(bigSampleCount, self.propagated_info_len)
+
+            prevBeamSymbols = self.symbolsTensor[prevBeamSymbols.view(bigSampleCount)]
+            curGruInput = torch.cat([propagatedNodeInfoToAttend, prevBeamSymbols], -1)
+            curGruInput = curGruInput.view(bigSampleCount, 1, self.gruInputLen)
+
+            if prevGruState is None:
+                prevGruState = self.buildInitGruState(propagatedNodeInfoToAttend)
+
+            prevGruState = prevGruState.view(
+                bigSampleCount,
+                self.output_decoder_stack_depth,
+                self.output_decoder_state_width,
+            )
+
+            # Make num_layers dimension as dim 0.
+            prevGruState = prevGruState.permute(1, 0, 2)
+
+            # Need contiguous state for RNN.
+            prevGruStateContiguous = prevGruState.contiguous()
+
+            # Cycle RNN state.
+            curGruOutput, curGruState = self.gruCell(curGruInput, prevGruStateContiguous)
+
+            # Undo making num_layers dimension as dim 0.
+            curGruState = curGruState.permute(1, 0, 2)
+
+            # Compute next symbol.
+            generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
+            generatedSymbolTensor = generatedSymbolTensor.view(
+                sampleCount, beamCount, vocabLen
+            )
+
+            # Split the dim0 of length into bigSampleCount two dims.
+            curGruOutput = curGruOutput.view(
+                [sampleCount, beamCount]
+                + list(curGruOutput.shape[1:])
+            )
+
+            # Split the dim0 of length into bigSampleCount two dims.
+            curGruState = curGruState.view(
+                [sampleCount, beamCount]
+                + list(curGruState.shape[1:])
+            )
+
+            return (curGruOutput, curGruState), generatedSymbolTensor
+
+        decodedSymbolBeams, decodedStatesTupleBeams = BeamSearch(
+            symbolGeneratorModel=decoderModel,
+            modelStartState=(initGruOutput, initGruState),
+            maxOutputLen=self.max_output_len,
+            maxBeamCount=beam_count,
+            sos_id=self.sos_id,
+            eos_id=self.eos_id,
+            outBeamCount=1,
+            device=self.device,
+        )
+
+        bestBeam = decodedSymbolBeams[0]
+        return self.symbolsTensor[bestBeam], bestBeam, None, None
