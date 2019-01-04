@@ -85,7 +85,7 @@ class Hier2hier(ModuleBase):
             targetOutput=None,
             target_lengths=None,
             beam_count=None,
-            collectOutput=False,
+            collectOutput=None,
             tensorBoardHook=None,
             ):
         if tensorBoardHook is None:

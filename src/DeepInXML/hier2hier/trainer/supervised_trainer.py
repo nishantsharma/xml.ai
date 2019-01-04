@@ -537,7 +537,7 @@ class SupervisedTrainer(object):
                                     collectOutput=calcAccuracy,
                                     tensorBoardHook=self.tensorBoardHook,
                                     )
-                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols)
+                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
             else:
                 beamAccuracy = None
         else:

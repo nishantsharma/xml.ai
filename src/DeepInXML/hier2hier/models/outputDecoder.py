@@ -278,7 +278,7 @@ class OutputDecoder(BaseRNN):
             else:
                 # Target lengths are unknown. Emulate with what we have.
                 targetLengthsOrderInverse = torch.tensor(
-                    list(range(self.max_output_len)),
+                    list(range(sampleCount)),
                     dtype=torch.long)
                 dimSqueezePoints = [(self.max_output_len, sampleCount)]
 
