@@ -32,14 +32,13 @@ def BeamSearch(
         # If not tuple, make it a singleton tuple.
         modelStartStateTuple = (modelStartState, )
         
-
     curBeamCount = 1
     sampleCount = modelStartStateTuple[0].shape[0]
 
     # Beam probabilities.
     # Shape: SampleCount X CurBeamCount.
     # Data: Probability value.
-    curBeamProbs = torch.ones(sampleCount, curBeamCount)
+    curBeamProbs = torch.ones(sampleCount, curBeamCount, device=device)
 
     # Current symbol outputs.
     # Shape: SampleCount X CurBeamCount.
@@ -173,7 +172,7 @@ def BeamSearch(
         symbolColumns = []
         if traceStates:
             stateTupleColumns = [[] for _ in range(stateCount)]
-        curBeamIndices = torch.LongTensor([i for _ in range(sampleCount)])
+        curBeamIndices = torch.tensor([i for _ in range(sampleCount)], dtype=torch.int64, device=device)
         for j in range(outputLen-1, -1, -1):
             symbolsColumn = batched_index_select(beamSymbolsTrace[j], 1, curBeamIndices)
             symbolColumns.append(symbolsColumn)

@@ -6,6 +6,10 @@ This is a framework for XML-to-XML (hier2hier) models implemented in [PyTorch](h
 has modularized and extensible components for hier2hier models, training and inference, checkpoints, etc.  This is an
 alpha release. We appreciate any kind of feedback or contribution.
 
+# Key Features 
+1) Use of attention to find the appropriate character position and XML node to focus upon.
+2) Use of GRU for encoding and decoding.  
+
 # What's New in 0.0.1
 
 * Compatible with PyTorch 0.4
