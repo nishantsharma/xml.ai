@@ -76,7 +76,7 @@ def batched_index_select(input, dim, index):
     index = index.view(views).expand(expanse)
     return torch.gather(input, dim, index)
 
-def computeAccuracy(expectedOutputs, expectedLengths, generatedOutput):
+def computeAccuracy(expectedOutputs, expectedLengths, generatedOutput, device=None):
     matchCount, maskCount = 0, 0
     for i in range(expectedOutputs.shape[0]):
         n=int(min(expectedLengths[i], len(generatedOutput[i])))
@@ -84,7 +84,7 @@ def computeAccuracy(expectedOutputs, expectedLengths, generatedOutput):
         expected = expectedOutputs[i][0:n]
         generated = generatedOutput[i][0:n]
         if isinstance(generated, list):
-            generated = torch.tensor(generated)
+            generated = torch.tensor(generated, device=device)
 
         if expected.shape[0] < generated.shape[0]:
             generated = generated[0:expected.shape[0]]

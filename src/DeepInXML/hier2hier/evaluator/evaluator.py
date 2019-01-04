@@ -63,20 +63,20 @@ class Evaluator(object):
                     accuracy = computeAccuracy(
                                             target_variables,
                                             target_lengths,
-                                            decodedSymbols)
+                                            decodedSymbols,
+                                            device=device)
 
                     _, beamDecodedSymbols = model(
                                             input_variables,
-                                            target_variables,
-                                            target_lengths,
-                                            beam_count=4,
+                                            beam_count=6,
                                             collectOutput=calcAccuracy,
                                             )
 
                     beamAccuracy = computeAccuracy(
                                             target_variables,
                                             target_lengths,
-                                            beamDecodedSymbols)
+                                            beamDecodedSymbols,
+                                            device=device)
 
                     count += 1
                     accuracy_total += accuracy

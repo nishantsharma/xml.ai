@@ -91,18 +91,18 @@ def loadConfig(mode):
                         help="Maximum length of the output file.")
 
     # Size meta-parameters of the generated neural network.
-    parser.add_argument("--node_text_vec_len", type = int, default = 96,
+    parser.add_argument("--node_text_vec_len", type = int, default = 192,
                         help="Length of encoded vector for node text.")
     parser.add_argument("--attrib_value_vec_len", type = int, default = 64,
                         help="Length of an encoded attribute value.")
     parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 12,
                         help="Depth of the graph layer stack. This determines the number of "
                         + "hops that information would propagate in the graph inside nodeInfoPropagator.")
-    parser.add_argument("--propagated_info_len", type = int, default = 128,
+    parser.add_argument("--propagated_info_len", type = int, default = 256,
                         help="Length of node information vector, when being propagated.")
     parser.add_argument("--output_decoder_stack_depth", type = int, default = 1,
                         help="Stack depth of node decoder.")
-    parser.add_argument("--output_decoder_state_width", type = int, default = 100,
+    parser.add_argument("--output_decoder_state_width", type = int, default = 200,
                         help="Width of GRU cell in output decoder.")
 
     # Other meta-parameters for training the neural network.

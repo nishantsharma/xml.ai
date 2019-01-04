@@ -527,7 +527,7 @@ class SupervisedTrainer(object):
             loss = self.loss.get_loss()
 
         if calcAccuracy:
-            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols)
+            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
             if False:
                 _, beamDecodedSymbols = self.model(
                                     input_variable,
