@@ -13,7 +13,7 @@ from hier2hier.evaluator import Evaluator
 from hier2hier.loss import NLLLoss, Perplexity
 from hier2hier.optim import Optimizer
 from hier2hier.models import Hier2hier
-from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile
+from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile, computeAccuracy
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook
 
@@ -233,7 +233,7 @@ class SupervisedTrainer(object):
                 if textOutput[int(textLengths[index])-1] != eos_id:
                     raise ValueError("eos_id missing at end index {0}.".format(textLengths[index]))
 
-                indexRange = range(1, int(textLength[index]))
+                indexRange = range(1, int(textLength))
             else:
                 indexRange = range(1, max_output_len)
 
@@ -340,6 +340,8 @@ class SupervisedTrainer(object):
 
         print_loss_total = 0  # Reset every print_every
         epoch_loss_total = 0  # Reset every epoch
+        epoch_accuracy_total = 0  # Reset every epoch
+        epoch_beamAccuracy_total = 0  # Reset every epoch
 
         batch_iterator = torchtext.data.BucketIterator(
             dataset=training_data, batch_size=self.batch_size,
@@ -378,6 +380,7 @@ class SupervisedTrainer(object):
                     continue
 
             self.model.train(True)
+            calcAccuracy=(self.epoch % 10 == 0)
             for batch in batch_generator:
                 self.tensorBoardHook.batchNext()
                 self.step += 1
@@ -386,7 +389,12 @@ class SupervisedTrainer(object):
                 input_variables = getattr(batch, hier2hier.src_field_name)
                 target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
 
-                loss = self._train_batch(input_variables, target_variables, target_lengths)
+                loss, accuracy, beamAccuracy = self._train_batch(
+                    input_variables,
+                    target_variables,
+                    target_lengths,
+                    calcAccuracy=calcAccuracy,
+                    )
                 if self.debug.profile:
                     print("Profiling info:")
                     print(json.dumps(lastCallProfile(True), indent=2))
@@ -394,6 +402,8 @@ class SupervisedTrainer(object):
                 # Record average loss
                 print_loss_total += loss
                 epoch_loss_total += loss
+                epoch_accuracy_total += accuracy if accuracy is not None else 0
+                epoch_beamAccuracy_total += beamAccuracy if beamAccuracy is not None else 0
 
                 if self.step % self.print_every == 0:
                     print_loss_avg = print_loss_total / self.print_every
@@ -429,39 +439,68 @@ class SupervisedTrainer(object):
             if self.step != start_step:
                 epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
                 self.tensorBoardHook.add_scalar("loss", epoch_loss_avg)
-
+                log_msg = "Finished epoch %d: Train %s: %.4f" % (
+                    self.epoch,
+                    self.loss.name,
+                    epoch_loss_avg,
+                )
                 epoch_loss_total = 0
 
-                log_msg = "Finished epoch %d: Train %s: %.4f" % (self.epoch, self.loss.name, epoch_loss_avg)
+                if accuracy is not None:
+                    epoch_accuracy_avg = epoch_accuracy_total / min(steps_per_epoch, self.step - start_step)
+                    self.tensorBoardHook.add_scalar("accuracy", epoch_accuracy_avg)
+                    log_msg += ", Accuracy:%.4f" % (epoch_accuracy_avg)
+                epoch_accuracy_total = 0
+
+                if beamAccuracy is not None:
+                    epoch_beamAccuracy_avg = epoch_beamAccuracy_total / min(steps_per_epoch, self.step - start_step)
+                    self.tensorBoardHook.add_scalar("beamAccuracy", epoch_beamAccuracy_avg)
+                    log_msg += ", BeamAccuracy:%.4f" % (epoch_beamAccuracy_avg)
+                epoch_beamAccuracy_total = 0
+
                 if dev_data is not None:
-                    dev_loss, accuracy = self.evaluator.evaluate(self.model, self.device, dev_data), float('nan')
+                    dev_loss, dev_accuracy, dev_beamAccuracy = self.evaluator.evaluate(
+                        self.model, self.device, dev_data, calcAccuracy,
+                    )
+
                     self.optimizer.update(dev_loss, self.epoch)
-                    log_msg += ", Dev %s: %.4f, Accuracy: %.4f" % (self.loss.name, dev_loss, accuracy)
+                    log_msg += ", Dev Loss: %.4f" % (dev_loss)
                     self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
+
+                    if dev_accuracy is not None:
+                        log_msg += ", Dev Accuracy %.4f" % (dev_accuracy)
+                        self.tensorBoardHook.add_scalar("dev_accuracy", dev_accuracy)
+
+                    if dev_beamAccuracy is not None:
+                        log_msg += ", Dev beamAccuracy %.4f." % (dev_beamAccuracy)
+                        self.tensorBoardHook.add_scalar("dev_beamAccuracy", dev_beamAccuracy)
+
                     self.model.train(mode=True)
                 else:
                     self.optimizer.update(epoch_loss_avg, self.epoch)
 
                 log.info(log_msg)
+                print(log_msg)
 
             self.epoch += 1
 
     @methodProfiler
-    def _train_batch(self, input_variable, target_variable, target_lengths):
+    def _train_batch(self, input_variable, target_variable, target_lengths, calcAccuracy=False):
         with blockProfiler("Input Forward Propagation"):
             # Forward propagation
-            decoder_outputs, _ = self.model(
+            decodedSymbolProbs, decodedSymbols = self.model(
                                     input_variable,
                                     target_variable,
                                     target_lengths,
                                     self.tensorBoardHook,
+                                    collectOutput=calcAccuracy,
                                     )
 
         with blockProfiler("Batch Loss Calculation"):
             # Get loss
             self.loss.reset()
             n = target_variable.numel()
-            self.loss.eval_batch(decoder_outputs.view(n, -1), target_variable.view(n,))
+            self.loss.eval_batch(decodedSymbolProbs.view(n, -1), target_variable.view(n,))
 
         with blockProfiler("Reset model gradient"):
             # Backward propagation
@@ -487,4 +526,21 @@ class SupervisedTrainer(object):
         with blockProfiler("Compute loss"):
             loss = self.loss.get_loss()
 
-        return loss
+        if calcAccuracy:
+            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols)
+            if False:
+                _, beamDecodedSymbols = self.model(
+                                    input_variable,
+                                    target_variable,
+                                    target_lengths,
+                                    beam_count=4,
+                                    collectOutput=calcAccuracy,
+                                    tensorBoardHook=self.tensorBoardHook,
+                                    )
+                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols)
+            else:
+                beamAccuracy = None
+        else:
+            accuracy, beamAccuracy = None, None
+
+        return loss, accuracy, beamAccuracy

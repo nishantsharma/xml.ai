@@ -310,7 +310,7 @@ class OutputDecoder(BaseRNN):
             # Init output vars.
             outputSymbolTensors = [ curSymbolTensor ]
             if collectOutput:
-                outputSymbols = [ [self.sos_id] for _ in range(sampleCount) ]
+                outputSymbols = [ [ self.sos_id for _ in range(sampleCount) ] ]
             else:
                 outputSymbols = None
 
@@ -412,7 +412,7 @@ class OutputDecoder(BaseRNN):
 
         with blockProfiler("ProcessPostLoop"):
             symbolColumnsCount = len(outputSymbolTensors)
-            if not duringTraining:
+            if collectOutput:
                 outputSymbolsTransposed = [[] for _ in range(sampleCount)]
                 for curSymbolColumn in outputSymbols:
                     for j, curSymbol in enumerate(curSymbolColumn):
@@ -467,7 +467,6 @@ class OutputDecoder(BaseRNN):
         initGruOutput = torch.cat([self.initGruOutput.view(1, -1) for _ in range(sampleCount)])
 
         initGruState = None
-
         # Give the beam dimension to nodeInfoPropagatedTensor.
         nodeInfoPropagatedExpandedTensor = nodeInfoPropagatedTensor.view(
             sampleCount,
@@ -509,6 +508,7 @@ class OutputDecoder(BaseRNN):
             else:
                 nodeInfoPropagatedBeamTensor = nodeInfoPropagatedExpandedTensor
 
+            nodeInfoPropagatedBeamTensor = nodeInfoPropagatedBeamTensor.contiguous()
             nodeInfoPropagatedBeamTensor = nodeInfoPropagatedBeamTensor.view(
                 bigSampleCount,
                 self.max_node_count,

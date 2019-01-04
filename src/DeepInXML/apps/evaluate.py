@@ -44,7 +44,7 @@ test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.f
 
 # Batching test inputs into singletons.
 test_batch_iterator = torchtext.data.BucketIterator(
-    dataset=test_dataset, batch_size=1,
+    dataset=test_dataset, batch_size=appConfig.batch_size,
     sort=False, sort_within_batch=False,
     device=device, repeat=False)
 
@@ -53,31 +53,32 @@ h2hModel = trainer.model
 h2hModel.eval()
 
 # In a loop, run the trained model over test dataset.
-for i, singleton_batch in enumerate(test_batch_iterator):
-    tree_inputs = singleton_batch.src
+for i, batch in enumerate(test_batch_iterator):
+    tree_inputs = batch.src
     tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
 
     try:
-        _, predicted_text_outputs = h2hModel(singleton_batch.src, beam_count=appConfig.beam_count)
+        _, predicted_text_outputs = h2hModel(batch.src, beam_count=appConfig.beam_count)
         predicted_text_outputs = trainer.decodeOutput(predicted_text_outputs)
     except ValueError as v:
-        predicted_text_outputs = v
+        predicted_text_outputs = [v for _ in range(appConfig.batch_size)]
 
     try:
-        expected_text_outputs, expected_text_lengths = singleton_batch.tgt
+        expected_text_outputs, expected_text_lengths = batch.tgt
         expected_text_outputs = trainer.decodeOutput(expected_text_outputs, expected_text_lengths)
     except ValueError as v:
-        expected_text_outputs = v
+        expected_text_outputs = [v for _ in range(appConfig.batch_size)]
 
-    print( ("\n"
-            + "Iteration {0}\n"
-            + "\tTree Input:\t\t{1}\n"
-            + "\tPredicted Output:\t{2}\n"
-            + "\tExpected Output:\t{3}\n"
-        ).format(
-            i,
-            tree_inputs,
-            predicted_text_outputs,
-            expected_text_outputs,
-        )
+    for j in range(appConfig.batch_size):
+        print( ("\n"
+                + "Iteration {0}\n"
+                + "\tTree Input:\t\t{1}\n"
+                + "\tPredicted Output:\t{2}\n"
+                + "\tExpected Output:\t{3}\n"
+            ).format(
+                i,
+                tree_inputs[j],
+                predicted_text_outputs[j],
+                expected_text_outputs[j],
+            )
     )

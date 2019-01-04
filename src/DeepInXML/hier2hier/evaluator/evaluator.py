@@ -5,6 +5,7 @@ import torchtext
 
 import hier2hier
 from hier2hier.loss import NLLLoss
+from hier2hier.util import computeAccuracy
 
 class Evaluator(object):
     """ Class to evaluate models with given datasets.
@@ -18,7 +19,7 @@ class Evaluator(object):
         self.loss = loss
         self.batch_size = batch_size
 
-    def evaluate(self, model, device, data):
+    def evaluate(self, model, device, data, calcAccuracy=False):
         """ Evaluate a model on given dataset and return performance.
 
         Args:
@@ -42,26 +43,54 @@ class Evaluator(object):
         tgt_vocab = data.fields[hier2hier.tgt_field_name].vocab
         pad = tgt_vocab.stoi[data.fields[hier2hier.tgt_field_name].pad_token]
 
+        count = 0
+        accuracy_total = 0
+        beamAccuracy_total = 0
+
         with torch.no_grad():
             for batch in batch_iterator:
                 input_variables  = getattr(batch, hier2hier.src_field_name)
                 target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
 
-                decoder_outputs, decoder_hidden = model(input_variables, target_variables, target_lengths)
+                decodedSymbolProbs, decodedSymbols = model(
+                    input_variables,
+                    target_variables,
+                    target_lengths,
+                    collectOutput=calcAccuracy,
+                    )
+
+                if calcAccuracy:
+                    accuracy = computeAccuracy(
+                                            target_variables,
+                                            target_lengths,
+                                            decodedSymbols)
+
+                    _, beamDecodedSymbols = model(
+                                            input_variables,
+                                            target_variables,
+                                            target_lengths,
+                                            beam_count=4,
+                                            collectOutput=calcAccuracy,
+                                            )
+
+                    beamAccuracy = computeAccuracy(
+                                            target_variables,
+                                            target_lengths,
+                                            beamDecodedSymbols)
+
+                    count += 1
+                    accuracy_total += accuracy
+                    beamAccuracy_total += beamAccuracy
 
                 # Evaluation
-                # seqlist = other['sequence']
-                for step, step_output in enumerate(decoder_outputs):
+                for step, step_output in enumerate(decodedSymbolProbs):
                     loss.eval_batch(step_output, target_variables[step])
+                    
+        if calcAccuracy:
+            accuracy_avg = accuracy_total/count
+            beamAccuracy_avg = beamAccuracy_total/count
+        else:
+            accuracy_avg = None
+            beamAccuracy_avg = None
 
-                    #non_padding = target.ne(pad)
-                    #correct = seqlist[step].view(-1).eq(target).masked_select(non_padding).sum().item()
-                    #match += correct
-                    #total += non_padding.sum().item()
-
-        #if total == 0:
-        #    accuracy = float('nan')
-        #else:
-        #    accuracy = match / total
-
-        return loss.get_loss() #, accuracy
+        return loss.get_loss() , accuracy_avg, beamAccuracy_avg

@@ -85,6 +85,7 @@ class Hier2hier(ModuleBase):
             targetOutput=None,
             target_lengths=None,
             beam_count=None,
+            collectOutput=False,
             tensorBoardHook=None,
             ):
         if tensorBoardHook is None:
@@ -132,7 +133,6 @@ class Hier2hier(ModuleBase):
                 nodeInfoEncodedTensor,
                 tensorBoardHook,
                 )
-
         (
             outputSymbolTensors,
             outputSymbols,
@@ -144,6 +144,7 @@ class Hier2hier(ModuleBase):
                 target_lengths,
                 tensorBoardHook,
                 beam_count=beam_count,
+                collectOutput=collectOutput,
             )
 
         if self.debug.runtests:
