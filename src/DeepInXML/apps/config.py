@@ -118,7 +118,7 @@ def loadConfig(mode):
                         help="Learning rate to use during training.")
     parser.add_argument('--clip_gradient', type=float, default=None,
                         help='gradient clipping')
-    parser.add_argument("--disable_batch_norm", type = str2bool, default = False,
+    parser.add_argument("--disable_batch_norm", type = str2bool, default = True,
                         help="Disable batch norm. Needed for running some tests.")
     if mode == AppMode.Evaluate:
         parser.add_argument("--beam_count", type = int, default = None,
