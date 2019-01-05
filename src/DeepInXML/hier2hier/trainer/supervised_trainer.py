@@ -337,7 +337,6 @@ class SupervisedTrainer(object):
 
     def _train_epochs(self, training_data, dev_data):
         log = self.logger
-
         print_loss_total = 0  # Reset every print_every
         epoch_loss_total = 0  # Reset every epoch
         epoch_accuracy_total = 0  # Reset every epoch
@@ -349,8 +348,11 @@ class SupervisedTrainer(object):
             sort_key=lambda x: len(x.tgt),
             device=self.device, repeat=False)
 
-        start_step = self.step
         steps_per_epoch = len(batch_iterator)
+        if self.step not in range(self.epoch*steps_per_epoch, (self.epoch+1)*steps_per_epoch):
+            # Step out of range with epoch.
+            self.step = self.epoch * steps_per_epoch
+        start_step = self.step
         total_steps = steps_per_epoch * self.n_epochs
 
         self.tensorBoardHook.stepReset(
@@ -361,29 +363,26 @@ class SupervisedTrainer(object):
         first_time = True
         while self.epoch != self.n_epochs:
             self.tensorBoardHook.epochNext()
-            log.debug("Epoch: %d, Step: %d" % (self.epoch, self.step))
-            print("Epoch: %d, Step: %d" % (self.epoch, self.step))
-
             # Partition next batch for iteartion within curent epoch.
             batch_generator = batch_iterator.__iter__()
 
             if first_time:
                 first_time = False
-                try:
-                    # Consuming batches already seen within the checkpoint.
-                    for n in range(self.epoch * steps_per_epoch, self.step):
-                        log.info("Skipping batch (epoch={0}, step={1}).".format(self.epoch, n))
-                        next(batch_generator)
-                except StopIteration:
-                    log.info("Skipping batch skipping (epoch={0}, step={1}).".format(self.epoch, n))
-                    print("Skipping batch skipping (epoch={0}, step={1}) due to exception.".format(self.epoch, n))
-                    continue
+                # Consuming batches already seen within the checkpoint.
+                for n in range(self.epoch * steps_per_epoch, self.step):
+                    log.info("Skipping batch (epoch={0}, step={1}).".format(self.epoch, n))
+                    next(batch_generator)
+
+            log.debug("Currently at Epoch: %d, Step: %d" % (self.epoch, self.step))
+            print("Currently at Epoch: %d, Step: %d" % (self.epoch, self.step))
 
             self.model.train(True)
             calcAccuracy=(self.epoch % 10 == 0)
             for batch in batch_generator:
-                self.tensorBoardHook.batchNext()
                 self.step += 1
+                self.epoch = self.step / steps_per_epoch
+
+                self.tensorBoardHook.batchNext()
                 self.tensorBoardHook.batch = self.step % steps_per_epoch
 
                 input_variables = getattr(batch, hier2hier.src_field_name)
@@ -436,53 +435,50 @@ class SupervisedTrainer(object):
                                modelArgs=self.modelArgs
                             ).save(checkpointFolder)
 
-            if self.step != start_step:
-                epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
-                self.tensorBoardHook.add_scalar("loss", epoch_loss_avg)
-                log_msg = "Finished epoch %d: Train %s: %.4f" % (
-                    self.epoch,
-                    self.loss.name,
-                    epoch_loss_avg,
+            epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)
+            self.tensorBoardHook.add_scalar("loss", epoch_loss_avg)
+            log_msg = "Finished epoch %d: Train %s: %.4f" % (
+                self.epoch,
+                self.loss.name,
+                epoch_loss_avg,
+            )
+            epoch_loss_total = 0
+
+            if accuracy is not None:
+                epoch_accuracy_avg = epoch_accuracy_total / min(steps_per_epoch, self.step - start_step)
+                self.tensorBoardHook.add_scalar("accuracy", epoch_accuracy_avg)
+                log_msg += ", Accuracy:%.4f" % (epoch_accuracy_avg)
+            epoch_accuracy_total = 0
+
+            if beamAccuracy is not None:
+                epoch_beamAccuracy_avg = epoch_beamAccuracy_total / min(steps_per_epoch, self.step - start_step)
+                self.tensorBoardHook.add_scalar("beamAccuracy", epoch_beamAccuracy_avg)
+                log_msg += ", BeamAccuracy:%.4f" % (epoch_beamAccuracy_avg)
+            epoch_beamAccuracy_total = 0
+
+            if dev_data is not None:
+                dev_loss, dev_accuracy, dev_beamAccuracy = self.evaluator.evaluate(
+                    self.model, self.device, dev_data, calcAccuracy,
                 )
-                epoch_loss_total = 0
 
-                if accuracy is not None:
-                    epoch_accuracy_avg = epoch_accuracy_total / min(steps_per_epoch, self.step - start_step)
-                    self.tensorBoardHook.add_scalar("accuracy", epoch_accuracy_avg)
-                    log_msg += ", Accuracy:%.4f" % (epoch_accuracy_avg)
-                epoch_accuracy_total = 0
+                self.optimizer.update(dev_loss, self.epoch)
+                log_msg += ", Dev Loss: %.4f" % (dev_loss)
+                self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
 
-                if beamAccuracy is not None:
-                    epoch_beamAccuracy_avg = epoch_beamAccuracy_total / min(steps_per_epoch, self.step - start_step)
-                    self.tensorBoardHook.add_scalar("beamAccuracy", epoch_beamAccuracy_avg)
-                    log_msg += ", BeamAccuracy:%.4f" % (epoch_beamAccuracy_avg)
-                epoch_beamAccuracy_total = 0
+                if dev_accuracy is not None:
+                    log_msg += ", Dev Accuracy %.4f" % (dev_accuracy)
+                    self.tensorBoardHook.add_scalar("dev_accuracy", dev_accuracy)
 
-                if dev_data is not None:
-                    dev_loss, dev_accuracy, dev_beamAccuracy = self.evaluator.evaluate(
-                        self.model, self.device, dev_data, calcAccuracy,
-                    )
+                if dev_beamAccuracy is not None:
+                    log_msg += ", Dev beamAccuracy %.4f." % (dev_beamAccuracy)
+                    self.tensorBoardHook.add_scalar("dev_beamAccuracy", dev_beamAccuracy)
 
-                    self.optimizer.update(dev_loss, self.epoch)
-                    log_msg += ", Dev Loss: %.4f" % (dev_loss)
-                    self.tensorBoardHook.add_scalar("dev_loss", dev_loss)
+                self.model.train(mode=True)
+            else:
+                self.optimizer.update(epoch_loss_avg, self.epoch)
 
-                    if dev_accuracy is not None:
-                        log_msg += ", Dev Accuracy %.4f" % (dev_accuracy)
-                        self.tensorBoardHook.add_scalar("dev_accuracy", dev_accuracy)
-
-                    if dev_beamAccuracy is not None:
-                        log_msg += ", Dev beamAccuracy %.4f." % (dev_beamAccuracy)
-                        self.tensorBoardHook.add_scalar("dev_beamAccuracy", dev_beamAccuracy)
-
-                    self.model.train(mode=True)
-                else:
-                    self.optimizer.update(epoch_loss_avg, self.epoch)
-
-                log.info(log_msg)
-                print(log_msg)
-
-            self.epoch += 1
+            log.info(log_msg)
+            print(log_msg)
 
     @methodProfiler
     def _train_batch(self, input_variable, target_variable, target_lengths, calcAccuracy=False):
@@ -495,6 +491,24 @@ class SupervisedTrainer(object):
                                     self.tensorBoardHook,
                                     collectOutput=calcAccuracy,
                                     )
+
+        if calcAccuracy:
+            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
+            print("Batch Accuracy {0}".format(accuracy))
+            if False:
+                _, beamDecodedSymbols = self.model(
+                                    input_variable,
+                                    target_variable,
+                                    target_lengths,
+                                    beam_count=4,
+                                    collectOutput=calcAccuracy,
+                                    tensorBoardHook=self.tensorBoardHook,
+                                    )
+                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
+            else:
+                beamAccuracy = None
+        else:
+            accuracy, beamAccuracy = None, None
 
         with blockProfiler("Batch Loss Calculation"):
             # Get loss
@@ -525,22 +539,5 @@ class SupervisedTrainer(object):
 
         with blockProfiler("Compute loss"):
             loss = self.loss.get_loss()
-
-        if calcAccuracy:
-            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
-            if False:
-                _, beamDecodedSymbols = self.model(
-                                    input_variable,
-                                    target_variable,
-                                    target_lengths,
-                                    beam_count=4,
-                                    collectOutput=calcAccuracy,
-                                    tensorBoardHook=self.tensorBoardHook,
-                                    )
-                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
-            else:
-                beamAccuracy = None
-        else:
-            accuracy, beamAccuracy = None, None
 
         return loss, accuracy, beamAccuracy

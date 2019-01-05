@@ -15,7 +15,7 @@ from hier2hier.optim import Optimizer
 from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import str2bool
+from hier2hier.util import str2bool, computeAccuracy
 
 from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder
 
@@ -45,7 +45,8 @@ test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.f
 # Batching test inputs into singletons.
 test_batch_iterator = torchtext.data.BucketIterator(
     dataset=test_dataset, batch_size=appConfig.batch_size,
-    sort=False, sort_within_batch=False,
+    sort=True, sort_within_batch=True,
+    sort_key=lambda x: len(x.tgt),
     device=device, repeat=False)
 
 # Get model from the trainer.
@@ -58,27 +59,31 @@ for i, batch in enumerate(test_batch_iterator):
     tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
 
     try:
-        _, predicted_text_outputs = h2hModel(batch.src, beam_count=appConfig.beam_count)
-        predicted_text_outputs = trainer.decodeOutput(predicted_text_outputs)
+        _, predicted_outputs = h2hModel(batch.src, beam_count=appConfig.beam_count)
+        predicted_text = trainer.decodeOutput(predicted_outputs)
     except ValueError as v:
-        predicted_text_outputs = [v for _ in range(appConfig.batch_size)]
+        predicted_text = [v for _ in range(appConfig.batch_size)]
 
     try:
-        expected_text_outputs, expected_text_lengths = batch.tgt
-        expected_text_outputs = trainer.decodeOutput(expected_text_outputs, expected_text_lengths)
+        expected_outputs, expected_lengths = batch.tgt
+        expected_text = trainer.decodeOutput(expected_outputs, expected_lengths)
     except ValueError as v:
         expected_text_outputs = [v for _ in range(appConfig.batch_size)]
 
+    accuracy = computeAccuracy(expected_outputs, expected_lengths, predicted_outputs, device=device)
+    print("Accuracy for batch {0}:{1}".format(i, accuracy))
+
     for j in range(appConfig.batch_size):
         print( ("\n"
-                + "Iteration {0}\n"
-                + "\tTree Input:\t\t{1}\n"
-                + "\tPredicted Output:\t{2}\n"
-                + "\tExpected Output:\t{3}\n"
+                + "Iteration {0}.{1}\n"
+                + "\tTree Input:\t\t{2}\n"
+                + "\tPredicted Output:\t{3}\n"
+                + "\tExpected Output:\t{4}\n"
             ).format(
                 i,
+                j,
                 tree_inputs[j],
-                predicted_text_outputs[j],
-                expected_text_outputs[j],
+                predicted_text[j],
+                expected_text[j],
             )
-    )
+        )
