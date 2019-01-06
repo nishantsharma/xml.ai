@@ -68,6 +68,10 @@ class EncoderRNN(BaseRNN):
         self.rnn = self.rnn_cell(self.rnn_input_size, hidden_size, n_layers,
                                 batch_first=True, bidirectional=bidirectional, dropout=dropout_p)
 
+    def reset_parameters(self):
+        self.embedding.reset_parameters()
+        super().reset_parameters()
+
     @property
     def output_vec_len(self):
         return self.input_size, self.hidden_size

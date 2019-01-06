@@ -42,6 +42,13 @@ class NodeInfoPropagator(ModuleBase):
         # Neighbor info gate.
         self.gruCell = torch.nn.GRUCell(propagated_info_len, propagated_info_len)
 
+    def reset_parameters(self):
+        self.resizeInfoWidth.reset_parameters()
+        self.batchNormPropagatedInfo.reset_parameters()
+        self.parentOp.reset_parameters()
+        self.neighborOp.reset_parameters()
+        self.gruCell.reset_parameters()
+
     @torch.no_grad()
     def test_forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)

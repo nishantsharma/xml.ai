@@ -10,3 +10,8 @@ class ModuleBase(nn.Module):
         for child in self.children():
             if isinstance(child, ModuleBase):
                 child.set_device(device)
+
+    def reset_parameters(self, device):
+        raise NotImplementedError("Param initialization")
+        for param in model.parameters():
+            param.data.uniform_(-1.0, 1.0)

@@ -22,6 +22,9 @@ class TagEncoder(ModuleBase):
         self.tagsVocab = tagsVocab
         self.max_node_count = max_node_count
 
+    def reset_parameters(self):
+        return
+
     @property
     def output_vec_len(self):
         return len(self.tagsVocab)
@@ -58,6 +61,10 @@ class NodeTextEncoder(EncoderRNN):
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
         self.textTensorBatchNorm = nn.BatchNorm1d(num_features=node_text_vec_len)
+
+    def reset_parameters(self):
+        super().reset_parameters()
+        self.textTensorBatchNorm.reset_parameters()
 
     @torch.no_grad()
     def test_forward_one(self, text):
@@ -139,6 +146,9 @@ class AttribsEncoder(ModuleBase):
         self.attribValueEncoder = attribValueEncoder
         self.max_node_count = max_node_count
 
+    def reset_parameters(self):
+        self.attribValueEncoder.reset_parameters()
+
     @property
     def output_vec_len(self):
         return len(self.attribsVocab) * self.attribValueEncoder.output_vec_len[1]
@@ -209,7 +219,7 @@ class NodeInfoEncoder(ModuleBase):
                 max_node_text_len,
                 node_text_vec_len,
                 device=device)
-        self.attribValueEncoder = EncoderRNN(
+        attribValueEncoder = EncoderRNN(
                 len(attribValueVocab),
                 max_attrib_value_len,
                 len(attribValueVocab),
@@ -217,10 +227,15 @@ class NodeInfoEncoder(ModuleBase):
                 device=device)
         self.attribsEncoder = AttribsEncoder(
                 attribsVocab,
-                self.attribValueEncoder,
+                attribValueEncoder,
                 max_node_count,
                 device=device)
         self.max_node_count = max_node_count
+
+    def reset_parameters(self):
+        self.nodeTextEncoder.reset_parameters()
+        self.tagsEncoder.reset_parameters()
+        self.attribsEncoder.reset_parameters()
 
     @property
     def output_vec_len(self):

@@ -53,6 +53,9 @@ class BaseRNN(ModuleBase):
             raise ValueError("Unsupported RNN Cell: {0}".format(rnn_cell))
 
         self.dropout_p = dropout_p
- 
+
+    def reset_parameters(self):
+        nn.RNN.reset_parameters(self) 
+
     def forward(self, *args, **kwargs):
         raise NotImplementedError()

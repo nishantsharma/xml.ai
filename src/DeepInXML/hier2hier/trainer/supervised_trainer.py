@@ -115,8 +115,7 @@ class SupervisedTrainer(object):
                 optimizer = Optimizer(optim.Adam(model.parameters(), lr=self.modelArgs.learning_rate), max_grad_norm=5)
 
             # Initialize model weights.
-            for param in model.parameters():
-                param.data.uniform_(-0.08, 0.08)
+            model.reset_parameters()
         else:
             checkpointFolder = "{0}{1}{2}/".format(
                 self.appConfig.training_dir,
@@ -344,7 +343,7 @@ class SupervisedTrainer(object):
 
         batch_iterator = torchtext.data.BucketIterator(
             dataset=training_data, batch_size=self.batch_size,
-            sort=True, sort_within_batch=True,
+            sort=False, shuffle=True, sort_within_batch=True,
             sort_key=lambda x: len(x.tgt),
             device=self.device, repeat=False)
 
@@ -377,10 +376,10 @@ class SupervisedTrainer(object):
             print("Currently at Epoch: %d, Step: %d" % (self.epoch, self.step))
 
             self.model.train(True)
-            calcAccuracy=(self.epoch % 10 == 0)
+            calcAccuracy=(self.epoch % 100 == 0)
             for batch in batch_generator:
                 self.step += 1
-                self.epoch = self.step / steps_per_epoch
+                self.epoch = int(self.step / steps_per_epoch)
 
                 self.tensorBoardHook.batchNext()
                 self.tensorBoardHook.batch = self.step % steps_per_epoch
@@ -495,18 +494,15 @@ class SupervisedTrainer(object):
         if calcAccuracy:
             accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
             print("Batch Accuracy {0}".format(accuracy))
-            if False:
-                _, beamDecodedSymbols = self.model(
-                                    input_variable,
-                                    target_variable,
-                                    target_lengths,
-                                    beam_count=4,
-                                    collectOutput=calcAccuracy,
-                                    tensorBoardHook=self.tensorBoardHook,
-                                    )
-                beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
-            else:
-                beamAccuracy = None
+            _, beamDecodedSymbols = self.model(
+                                input_variable,
+                                target_variable,
+                                target_lengths,
+                                beam_count=4,
+                                collectOutput=calcAccuracy,
+                                tensorBoardHook=self.tensorBoardHook,
+                                )
+            beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
         else:
             accuracy, beamAccuracy = None, None
 

@@ -45,7 +45,7 @@ test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.f
 # Batching test inputs into singletons.
 test_batch_iterator = torchtext.data.BucketIterator(
     dataset=test_dataset, batch_size=appConfig.batch_size,
-    sort=True, sort_within_batch=True,
+    sort=False, shuffle=True, sort_within_batch=True,
     sort_key=lambda x: len(x.tgt),
     device=device, repeat=False)
 

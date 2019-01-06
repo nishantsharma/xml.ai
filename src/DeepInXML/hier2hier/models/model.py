@@ -79,6 +79,11 @@ class Hier2hier(ModuleBase):
         else:
             super().cpu()
 
+    def reset_parameters(self):
+        self.nodeInfoEncoder.reset_parameters()
+        self.nodeInfoPropagator.reset_parameters()
+        self.outputDecoder.reset_parameters()
+
     @methodProfiler
     def forward(self,
             xmlTreeList,

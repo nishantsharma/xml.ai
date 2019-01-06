@@ -70,6 +70,16 @@ class OutputDecoder(BaseRNN):
             self.propagated_info_len,
             self.output_decoder_stack_depth  * self.output_decoder_state_width)
 
+    def reset_parameters(self):
+        self.gruCell.reset_parameters()
+        for softmaxModule in [self.symbolDecoder, self.attentionDecoder, self.symbolDecoder]:
+            for param in softmaxModule.parameters():
+                param.data.uniform(-1.0, 1.0)
+        self.attentionPreDecoder.reset_parameters()
+        self.symbolPreDecoder.reset_parameters()
+        nn.init.normal_(self.initGruOutput)
+        self.buildInitGruState.reset_parameters()
+
     @torch.no_grad()
     def test_forward(self,
             nodeInfoPropagatedTensor,
