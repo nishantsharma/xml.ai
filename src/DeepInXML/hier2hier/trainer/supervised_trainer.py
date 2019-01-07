@@ -160,6 +160,11 @@ class SupervisedTrainer(object):
             model.outputDecoder.runtests = self.debug.runtests
             model.debug = self.debug
 
+            # Model behaves very differently during test time when track_running_stats is true. 
+            # Saved model had it false. Fixing here.
+            model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False 
+            model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
+
             # A walk around to set optimizing parameters properly
             resume_optim = optimizer.optimizer
             defaults = resume_optim.param_groups[0]
