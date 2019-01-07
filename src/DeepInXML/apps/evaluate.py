@@ -75,7 +75,7 @@ for i, batch in enumerate(test_batch_iterator):
 
     for j in range(appConfig.batch_size):
         print( ("\n"
-                + "Iteration {0}.{1}\n"
+                + "Iteration {0}.{1:05}\n"
                 + "\tTree Input:\t\t{2}\n"
                 + "\tPredicted Output:\t{3}\n"
                 + "\tExpected Output:\t{4}\n"

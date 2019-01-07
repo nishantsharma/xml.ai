@@ -27,7 +27,7 @@ def loadConfig(mode):
     # For usage help, issue with argument --help.
     parser = argparse.ArgumentParser()
 
-    # Various load/store settings.
+    # Basic load/store settings.
     parser.add_argument('--domain', action='store', dest='domain', default="toy1",
                         help='The app domain to use.')
     parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
@@ -38,12 +38,17 @@ def loadConfig(mode):
                         help="Index of the run that should be operated upon.")
     parser.add_argument('--resume', default=None, type=str2bool3,
                         help='Indicates if training has to be resumed from the latest checkpoint')
+
+    # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest.
+    basicAppConfig, _ = parser.parse_known_args()
+    postProcessAppConfig(basicAppConfig, mode)
+
+    # Domain customizable load/store settings.
     parser.add_argument("--checkpoint_every", type = int, default = 100,
                         help="Number of epochs after which we take a checkpoint.")
     parser.add_argument("--input_select_percent", type = float, default = None,
                         help="Percentage of inputs actually to be selected for training. This helps in training"
                              + " with smaller dataset that what all is available.")
-
 
     # Randomizaion settings.
     parser.add_argument('--random_seed', dest='random_seed',
@@ -106,9 +111,9 @@ def loadConfig(mode):
                         help="Width of GRU cell in output decoder.")
 
     # Other meta-parameters for training the neural network.
-    parser.add_argument("--input_dropout_p", type = int, default = 0.1,
+    parser.add_argument("--input_dropout_p", type = float, default = None if basicAppConfig.resume else 0.1,
                         help="Input dropout probability.")
-    parser.add_argument("--dropout_p", type = int, default = 0.1,
+    parser.add_argument("--dropout_p", type = float, default = None if basicAppConfig.resume else 0.1,
                         help="Dropout probability.")
     parser.add_argument("--use_attention", type = int, default = True,
                         help="Use attention while selcting most appropriate.")
@@ -127,6 +132,9 @@ def loadConfig(mode):
     # Parse args to build app config dictionary.
     appConfig = parser.parse_args()
 
+    # Post process app config.
+    postProcessAppConfig(appConfig, mode)
+
     # Spin out model arguments from app configuration.
     modelArgs = levelDown(appConfig,
             "modelArgs",
@@ -144,7 +152,13 @@ def loadConfig(mode):
                 "clip_gradient", "disable_batch_norm",
             ]
         )
+    return appConfig, modelArgs
 
+def postProcessAppConfig(appConfig, mode):
+    """
+        Post proces appConfig.
+        Build derived configuration items and fix some of the appConfig defaults, where necessary.
+    """
     # Restructure appConfig to constitute a configuration hierarchy.
     appConfig.debug = levelDown(appConfig, "debug", ["tensorboard", "profile", "runtests"])
 
@@ -196,8 +210,6 @@ def loadConfig(mode):
     # If runFolder exists but checkpoint folder doesn't, we still can't resume.
     if appConfig.checkpointFolder is None:
         appConfig.resume = False
-
-    return appConfig, modelArgs
 
 def getRunFolder(dataFolderPath,
         allRunsFolder,

@@ -163,21 +163,25 @@ class SupervisedTrainer(object):
 
             # Fixup nodeInfoPropagator.input_dropout.
             if (not hasattr(model.nodeInfoPropagator, "input_dropout")
-                    or model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p):
+                    or (self.modelArgs.input_dropout_p != None
+                        and model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p)):
                 model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
 
             # Fixup nodeInfoPropagator.dropout.
             if (not hasattr(model.nodeInfoPropagator, "dropout") 
-                    or model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p):
+                    or (self.modelArgs.dropout_p != None
+                        and model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p)):
                 model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
 
             # Fixup outputDecoder.input_dropout.
             if (not hasattr(model.outputDecoder, "input_dropout")
-                    or model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p):
+                    or (self.modelArgs.input_dropout_p != None
+                        and model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p)):
                 model.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
 
             # Fixup outputDecoder.gruCell.droupout.
-            if model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p:
+            if (self.modelArgs.dropout_p != None
+                    and model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p):
                 model.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
 
             modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
