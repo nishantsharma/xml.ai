@@ -4,6 +4,7 @@ import json, os, random, time, logging, copy
 from orderedattrdict import AttrDict as SortedAttrDict
 
 import torch
+import torch.nn as nn
 import torchtext
 from torch import optim
 
@@ -159,6 +160,28 @@ class SupervisedTrainer(object):
             model.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
             model.outputDecoder.runtests = self.debug.runtests
             model.debug = self.debug
+
+            # Fixup nodeInfoPropagator.input_dropout.
+            if (not hasattr(model.nodeInfoPropagator, "input_dropout")
+                    or model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p):
+                model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
+
+            # Fixup nodeInfoPropagator.dropout.
+            if (not hasattr(model.nodeInfoPropagator, "dropout") 
+                    or model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p):
+                model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
+
+            # Fixup outputDecoder.input_dropout.
+            if (not hasattr(model.outputDecoder, "input_dropout")
+                    or model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p):
+                model.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
+
+            # Fixup outputDecoder.gruCell.droupout.
+            if model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p:
+                model.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
+
+            modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
+            modelArgs.dropout_p = self.modelArgs.dropout_p
 
             # Model behaves very differently during test time when track_running_stats is true. 
             # Saved model had it false. Fixing here.

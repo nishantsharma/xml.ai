@@ -20,6 +20,8 @@ class NodeInfoPropagator(ModuleBase):
             max_node_count,
             node_info_propagator_stack_depth,
             disable_batch_norm,
+            input_dropout_p=0,
+            dropout_p=0,
             device=None):
         super().__init__(device)
         self.encoded_node_vec_len = encoded_node_vec_len
@@ -30,6 +32,8 @@ class NodeInfoPropagator(ModuleBase):
 
         # Upgrade size of input.
         self.resizeInfoWidth = nn.Linear(self.encoded_node_vec_len, self.propagated_info_len)
+
+        self.input_dropout = nn.Dropout(p=input_dropout_p)
 
         # Batch norm on propagated info.
         if not self.disable_batch_norm:
@@ -42,6 +46,9 @@ class NodeInfoPropagator(ModuleBase):
         # Neighbor info gate.
         self.gruCell = torch.nn.GRUCell(propagated_info_len, propagated_info_len)
 
+        # GRU output dropout.
+        self.dropout = nn.Dropout(p=dropout_p)
+
     def reset_parameters(self):
         self.resizeInfoWidth.reset_parameters()
         self.batchNormPropagatedInfo.reset_parameters()
@@ -51,9 +58,15 @@ class NodeInfoPropagator(ModuleBase):
 
     @torch.no_grad()
     def test_forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor):
+        # Resize by width.
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
+
+        # Apply input dropout. Better to do after resize as input bits are non-uniform.
+        nodeInfoPropagated = self.input_dropout(nodeInfoPropagated)
+
         if not self.disable_batch_norm:
             nodeInfoPropagated = self.batchNormPropagatedInfo(nodeInfoPropagated)
+
         return nodeInfoPropagated
 
     @methodProfiler
@@ -109,7 +122,12 @@ class NodeInfoPropagator(ModuleBase):
     @methodProfiler
     def forward(self, treeIndex2NodeIndex2NbrIndices, nodeInfosTensor, tensorBoardHook):
         sampleCount = len(nodeInfosTensor)
+
+        # Resize by width.
         nodeInfoPropagated = self.resizeInfoWidth(nodeInfosTensor)
+
+        # Apply input dropout. Better to do after resize as input bits are non-uniform.
+        nodeInfoPropagated = self.input_dropout(nodeInfoPropagated)
 
         # For efficiency, we need to re-arrange nodes in nodeInfosTensor in the increasing
         # order of fanout.
@@ -190,6 +208,9 @@ class NodeInfoPropagator(ModuleBase):
 
                 # Propagate the new neighbor information using GRU cell to obtain updated node info.
                 nodeInfoPropagatedReOrdered = self.gruCell(nodeInfoPropagatedReOrdered, neighborsNodeInfoSummary)
+
+                # Apply GRU output dropout.
+                nodeInfoPropagatedReOrdered = self.dropout(nodeInfoPropagatedReOrdered)
 
             # Invert re-ordering to obtain the flat newly propagated node info tensor.
             nodeInfoPropagatedFlat = torch.index_select(

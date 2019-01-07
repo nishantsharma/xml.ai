@@ -52,8 +52,6 @@ class OutputDecoder(BaseRNN):
 
         self.symbolsTensor = nn.Parameter(torch.eye(len(output_vocab), device=self.device), requires_grad=False)
 
-        # self.embedding = nn.Embedding(self.output_size, self.output_size)
-
         # Network for attention decoding.
         self.attentionPreDecoder = nn.Linear(output_decoder_state_width + propagated_info_len, 1)
         self.attentionDecoder = nn.Softmax(dim=-1)
@@ -86,6 +84,8 @@ class OutputDecoder(BaseRNN):
             targetOutput=None,
             targetLengths=None,
             teacherForcedSelections=None):
+        # Dropout parts of data.
+        nodeInfoPropagatedTensor = self.input_dropout(nodeInfoPropagatedTensor)
 
         treeCount = len(nodeInfoPropagatedTensor)
         duringTraining = targetOutput is not None
@@ -114,7 +114,9 @@ class OutputDecoder(BaseRNN):
             treeOutputSymbolsTensor = [ ]
             treeOutputSymbols = [ ]
 
+            # Get the propagated node info of the current tree.
             nodeInfosPropagated = nodeInfoPropagatedTensor[treeIndex]
+
             maxSymbolIndex = -1
             for symbolIndex in range(self.max_output_len):
                 # Compute next attention.
@@ -252,9 +254,13 @@ class OutputDecoder(BaseRNN):
             collectOutput=None,
             beam_count=None,
         ):
+        # Dropout parts of data.
+        nodeInfoPropagatedTensor = self.input_dropout(nodeInfoPropagatedTensor)
+
         duringTraining = targetOutput is not None
         if collectOutput is None:
             collectOutput = not(duringTraining)
+
         if not duringTraining and beam_count is not None:
             return self.beamSearch(nodeInfoPropagatedTensor, beam_count)
 

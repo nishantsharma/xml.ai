@@ -106,9 +106,9 @@ def loadConfig(mode):
                         help="Width of GRU cell in output decoder.")
 
     # Other meta-parameters for training the neural network.
-    parser.add_argument("--input_dropout_p", type = int, default = 0,
+    parser.add_argument("--input_dropout_p", type = int, default = 0.1,
                         help="Input dropout probability.")
-    parser.add_argument("--dropout_p", type = int, default = 0,
+    parser.add_argument("--dropout_p", type = int, default = 0.1,
                         help="Dropout probability.")
     parser.add_argument("--use_attention", type = int, default = True,
                         help="Use attention while selcting most appropriate.")
