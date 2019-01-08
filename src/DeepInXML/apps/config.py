@@ -39,6 +39,10 @@ def loadConfig(mode):
     parser.add_argument('--resume', default=None, type=str2bool3,
                         help='Indicates if training has to be resumed from the latest checkpoint')
 
+    # Testing data folders.
+    if mode == AppMode.Evaluate:
+        parser.add_argument('--test_dataset', default="test", type=str,
+                        help='Dataset(test/dev/train) to use for evaluation.')
     # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest.
     basicAppConfig, _ = parser.parse_known_args()
     postProcessAppConfig(basicAppConfig, mode)
@@ -162,13 +166,13 @@ def postProcessAppConfig(appConfig, mode):
     # Restructure appConfig to constitute a configuration hierarchy.
     appConfig.debug = levelDown(appConfig, "debug", ["tensorboard", "profile", "runtests"])
 
-    # Training data folders.
+    # Training, validation and evaluation data folders.
     appConfig.input_path = appConfig.inputs_root_dir + appConfig.domain + "/"
     if mode == AppMode.Train:
         appConfig.train_path = appConfig.input_path + "train/"
         appConfig.dev_path = appConfig.input_path + "dev/"
     elif mode == AppMode.Evaluate:
-        appConfig.test_path = appConfig.input_path + "test/"
+        appConfig.test_path = appConfig.input_path + appConfig.test_dataset + "/" 
 
     # Training run folders.
     if not os.path.isabs(appConfig.training_dir):
