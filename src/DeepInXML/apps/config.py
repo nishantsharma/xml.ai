@@ -28,7 +28,7 @@ def loadConfig(mode):
     parser = argparse.ArgumentParser()
 
     # Basic load/store settings.
-    parser.add_argument('--domain', action='store', dest='domain', default="toy1",
+    parser.add_argument('--domain', action='store', dest='domain', default="toy2",
                         help='The app domain to use.')
     parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
                         help='Path to folder containing dev, train and test input data folders.')
@@ -172,7 +172,7 @@ def postProcessAppConfig(appConfig, mode):
         appConfig.train_path = appConfig.input_path + "train/"
         appConfig.dev_path = appConfig.input_path + "dev/"
     elif mode == AppMode.Evaluate:
-        appConfig.test_path = appConfig.input_path + appConfig.test_dataset + "/" 
+        appConfig.test_path = appConfig.input_path + appConfig.test_dataset + "/"
 
     # Training run folders.
     if not os.path.isabs(appConfig.training_dir):

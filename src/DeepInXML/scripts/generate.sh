@@ -16,4 +16,4 @@ export PYTHONPATH=$(pwd)
 
 # N.B.: assumes script is called from parent directory, as described in README.md
 mkdir -p $DOMAIN_DATA_DIR
-python3 $DOMAIN_PATH/generate.py --dir=$DOMAIN_DATA_DIR 
+python3 $DOMAIN_PATH/generate.py $GEN_ARGS

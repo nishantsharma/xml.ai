@@ -3,7 +3,7 @@ import argparse
 import os, sys
 import shutil
 import random
-from dataset.xsd2xml import GenXML
+from hier2hier.dataset.xsd2xml import GenXML
 import xml.etree.ElementTree as ET
 
 def transform(xmlTree):
