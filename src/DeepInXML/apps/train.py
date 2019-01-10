@@ -1,4 +1,4 @@
-import os, argparse, logging, json
+import os, sys, argparse, logging, json
 from orderedattrdict import AttrDict
 
 import torch
@@ -42,4 +42,3 @@ dev_data = Hier2HierDataset(baseFolder=appConfig.dev_path, fields=trainer.fields
 
 # Train the model.
 trainer.train(training_data, dev_data=dev_data)
-

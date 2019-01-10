@@ -43,6 +43,7 @@ class TagEncoder(ModuleBase):
             for index, node in enumerate(xmlTree.iter()):
                 treeCode.append(onehotencode(len(self.tagsVocab), self.tagsVocab.stoi[node.tag]))
                 assert(index == node2Index[node])
+            treeCode += [torch.zeros(len(self.tagsVocab))] * (self.max_node_count - len(treeCode))
             allTreeCodes.append(treeCode)
 
         return torch.tensor(allTreeCodes, device=self.device)
@@ -60,11 +61,9 @@ class NodeTextEncoder(EncoderRNN):
         self.textVocab = textVocab
         self.max_node_count = max_node_count
         self.node_text_vec_len = node_text_vec_len
-        self.textTensorBatchNorm = nn.BatchNorm1d(num_features=node_text_vec_len)
 
     def reset_parameters(self):
         super().reset_parameters()
-        self.textTensorBatchNorm.reset_parameters()
 
     @torch.no_grad()
     def test_forward_one(self, text):
@@ -106,7 +105,7 @@ class NodeTextEncoder(EncoderRNN):
         textLengthsTensor = torch.tensor(textLengthsList, dtype=torch.long, device=self.device)
 
         # Apply batch norm before activation.
-        #textTensor = self.textTensorBatchNorm(textTensor) 
+        #textTensor = self.textTensorBatchNorm(textTensor)
 
         # Encode.
         tensorBoardHook.add_histogram("TextEncoderGru.Input", textTensor)
@@ -122,14 +121,14 @@ class NodeTextEncoder(EncoderRNN):
 
         # Get back node text indices in original order.
         allTextEncoded = []
-        zeroPaddingNodeVec = torch.zeros([self.node_text_vec_len], device=self.device)
+        zeroPaddingNodeVec = torch.zeros([1, self.node_text_vec_len], device=self.device)
         for treeIndex, nodeIndex2EncodedIndex in treeIndex2NodeIndex2EncodedIndex.items():
             treeTextEncoded = [
                 encodedTextVec[:, encodedIndex, :]
                 for nodeIndex, encodedIndex in nodeIndex2EncodedIndex.items()
             ]
 
-            # Some of the trees may need padding so tht all trees have self.max_node_count
+            # Some of the trees may need padding so that all trees have self.max_node_count
             # number of node vectors.
             treeTextEncoded += [zeroPaddingNodeVec] * (self.max_node_count - len(treeTextEncoded))
             treeTextEncoded = torch.cat(treeTextEncoded).view(1, self.max_node_count, self.node_text_vec_len)
@@ -175,6 +174,7 @@ class AttribsEncoder(ModuleBase):
         retval = []
         #torch.zeros([sampleCount, self.max_node_count, attrCount, attrVecLen], device=self.device)
         zeroAttrib = torch.zeros(1, attrVecLen, device=self.device)
+        zeroPaddingNodeVec = torch.zeros([1, attrCount, attrVecLen], device=self.device)
         for treeIndex, xmlTree in enumerate(xmlTreeList):
             encodedTree = []
             for node in xmlTree.iter():
@@ -185,6 +185,7 @@ class AttribsEncoder(ModuleBase):
                     encodedNode[attribIndex] = attribVec
                 encodedNode = torch.cat(encodedNode).view(1, attrCount, attrVecLen)
                 encodedTree.append(encodedNode)
+            encodedTree += [zeroPaddingNodeVec] * (self.max_node_count - len(encodedTree))
             encodedTree = torch.cat(encodedTree).view(1, self.max_node_count, attrCount, attrVecLen)
             retval.append(encodedTree)
 
@@ -279,4 +280,5 @@ class NodeInfoEncoder(ModuleBase):
         newAttrShape = attrShape[0:-2] + (attrShape[-1] * attrShape[-2],)
         encodedAttributesReshaped = encodedAttributes.view(newAttrShape)
         retval = torch.cat([encodedTags, encodedText, encodedAttributesReshaped], -1)
+
         return retval

@@ -168,7 +168,7 @@ class SupervisedTrainer(object):
                 model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
 
             # Fixup nodeInfoPropagator.dropout.
-            if (not hasattr(model.nodeInfoPropagator, "dropout") 
+            if (not hasattr(model.nodeInfoPropagator, "dropout")
                     or (self.modelArgs.dropout_p != None
                         and model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p)):
                 model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
@@ -187,9 +187,9 @@ class SupervisedTrainer(object):
             modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
             modelArgs.dropout_p = self.modelArgs.dropout_p
 
-            # Model behaves very differently during test time when track_running_stats is true. 
+            # Model behaves very differently during test time when track_running_stats is true.
             # Saved model had it false. Fixing here.
-            model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False 
+            model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
             model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
 
             # A walk around to set optimizing parameters properly
@@ -306,6 +306,7 @@ class SupervisedTrainer(object):
         attrValueSymbolSet = set()
         textSymbolSet = set()
         maxFanout = 0
+        maxNodeCount = 0
         maxNodeTextLen = 0
         maxAttrValueLen = 0
         maxOutputLen = 0
@@ -313,7 +314,9 @@ class SupervisedTrainer(object):
             # Process input.
             inputTreeList = getattr(batch, hier2hier.src_field_name)
             for inputTree in inputTreeList:
-                for node in inputTree.getroot().iter():
+                treeNodes = list(inputTree.getroot().iter())
+                maxNodeCount = max(len(treeNodes), maxNodeCount)
+                for node in treeNodes:
                     nodeTagSet.add(node.tag)
                     for attrName, attrValue in node.attrib.items():
                         attrNameSet.add(attrName)
@@ -332,8 +335,8 @@ class SupervisedTrainer(object):
                 maxOutputLen = max(maxOutputLen, int(outputLength))
 
         if modelArgs.max_node_count is None:
-            modelArgs.max_node_count = len(nodeTagSet)
-        elif modelArgs.max_node_count < len(nodeTagSet):
+            modelArgs.max_node_count = maxNodeCount
+        elif modelArgs.max_node_count < maxNodeCount:
             raise ValueError("max_node_count smaller than the actual node count.")
 
         if modelArgs.total_attrs_count is None:

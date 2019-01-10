@@ -2,4 +2,4 @@
 
 export PYTHONPATH=$(pwd)/
 # Start evaluation 
-python3 ./apps/evaluate.py $@ 
+python3 -m pdb -c continue ./apps/evaluate.py $@ 

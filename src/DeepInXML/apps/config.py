@@ -24,28 +24,37 @@ class AppMode(Enum):
     Evaluate=2
 
 def loadConfig(mode):
-    # For usage help, issue with argument --help.
-    parser = argparse.ArgumentParser()
+    def basic_arguments_parser(add_help):
+        """
+        Just creates a command line parser with basic set of arguments.
+        """
+        parser = argparse.ArgumentParser(add_help=add_help)
 
-    # Basic load/store settings.
-    parser.add_argument('--domain', action='store', dest='domain', default="toy2",
-                        help='The app domain to use.')
-    parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
-                        help='Path to folder containing dev, train and test input data folders.')
-    parser.add_argument('--training_dir', action='store', dest='training_dir', default='./data/training/',
-                        help='Path to experiment directory.')
-    parser.add_argument("--run", action='store', dest='run', default = None, type = int,
-                        help="Index of the run that should be operated upon.")
-    parser.add_argument('--resume', default=None, type=str2bool3,
-                        help='Indicates if training has to be resumed from the latest checkpoint')
+        # Basic load/store settings.
+        parser.add_argument('--domain', action='store', dest='domain', default="toy2",
+                            help='The app domain to use.')
+        parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
+                            help='Path to folder containing dev, train and test input data folders.')
+        parser.add_argument('--training_dir', action='store', dest='training_dir', default='./data/training/',
+                            help='Path to experiment directory.')
+        parser.add_argument("--run", action='store', dest='run', default = None, type = int,
+                            help="Index of the run that should be operated upon.")
+        parser.add_argument('--resume', default=None, type=str2bool3,
+                            help='Indicates if training has to be resumed from the latest checkpoint')
 
-    # Testing data folders.
-    if mode == AppMode.Evaluate:
-        parser.add_argument('--test_dataset', default="test", type=str,
-                        help='Dataset(test/dev/train) to use for evaluation.')
-    # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest.
-    basicAppConfig, _ = parser.parse_known_args()
+        # Testing data folders.
+        if mode == AppMode.Evaluate:
+            parser.add_argument('--test_dataset', default="test", type=str,
+                            help='Dataset(test/dev/train) to use for evaluation.')
+
+        return parser
+
+    # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest
+    basicAppConfig, _ = basic_arguments_parser(False).parse_known_args()
     postProcessAppConfig(basicAppConfig, mode)
+
+    # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
+    parser = basic_arguments_parser(True)
 
     # Domain customizable load/store settings.
     parser.add_argument("--checkpoint_every", type = int, default = 100,
@@ -104,7 +113,7 @@ def loadConfig(mode):
                         help="Length of encoded vector for node text.")
     parser.add_argument("--attrib_value_vec_len", type = int, default = 64,
                         help="Length of an encoded attribute value.")
-    parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 12,
+    parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 3,
                         help="Depth of the graph layer stack. This determines the number of "
                         + "hops that information would propagate in the graph inside nodeInfoPropagator.")
     parser.add_argument("--propagated_info_len", type = int, default = 256,
@@ -144,8 +153,8 @@ def loadConfig(mode):
             "modelArgs",
             [
                 # XML Schema limits.
-                "max_node_count", "total_attrs_count", "value_symbols_count", "max_node_fanout",
-                "max_node_text_len", "max_attrib_value_len", "max_output_len",
+                "max_node_count", "node_type_count", "total_attrs_count", "value_symbols_count",
+                "max_node_fanout", "max_node_text_len", "max_attrib_value_len", "max_output_len",
 
                 # Size meta-parameters of the generated neural network.
                 "node_text_vec_len", "attrib_value_vec_len", "node_info_propagator_stack_depth",
