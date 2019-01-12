@@ -1,4 +1,4 @@
-import os, argparse, logging, glob
+import os, argparse, logging, glob, random
 from orderedattrdict import AttrDict
 from enum import Enum
 
@@ -65,7 +65,7 @@ def loadConfig(mode):
 
     # Randomizaion settings.
     parser.add_argument('--random_seed', dest='random_seed',
-                        default=None,
+                        type=float, default=None,
                         help='Random seed to use before start of the training.')
 
     # Various logging and debug settings.
@@ -165,6 +165,12 @@ def loadConfig(mode):
                 "clip_gradient", "disable_batch_norm",
             ]
         )
+        
+    # Apply random seed.
+    if appConfig.random_seed is not None:
+        random.seed(appConfig.random_seed)
+        torch.manual_seed(appConfig.random_seed)
+
     return appConfig, modelArgs
 
 def postProcessAppConfig(appConfig, mode):

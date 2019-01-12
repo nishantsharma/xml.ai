@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-from .baseRNN import BaseRNN
-from .attention import Attention
-from .beamSearch import BeamSearch
+from hier2hier.models.baseRNN import BaseRNN
+from hier2hier.models.attention import Attention
+from hier2hier.models.beamSearch import BeamSearch
 from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockProfiler,
                             methodProfiler, lastCallProfile)
 import torch.nn.functional as F
@@ -111,17 +111,17 @@ class OutputDecoder(BaseRNN):
             else:
                 teacherForced = teacherForcedSelections[treeIndex]
 
-            treeOutputSymbolsTensor = [ ]
-            treeOutputSymbols = [ ]
+            treeOutputSymbolsTensor = [ curSymbolTensor ]
+            treeOutputSymbols = [ curSymbol ]
 
             # Get the propagated node info of the current tree.
             nodeInfosPropagated = nodeInfoPropagatedTensor[treeIndex]
 
             maxSymbolIndex = -1
-            for symbolIndex in range(self.max_output_len):
+            for symbolIndex in range(1, self.max_output_len):
                 # Compute next attention.
                 curAttention = self.decodeAttention(
-                    nodeInfosPropagated.view(1, 1, -1),
+                    nodeInfosPropagated.view(1, self.max_node_count, -1),
                     curGruOutput)
 
                 # Compute node info summary to use in computation.
@@ -153,7 +153,7 @@ class OutputDecoder(BaseRNN):
 
                 # Compute next symbol.
                 if not duringTraining:
-                    generatedSymbol = int(generatedSymbolTensor.topk(1))
+                    generatedSymbol = int(generatedSymbolTensor.topk(1)[1])
                     treeOutputSymbols.append(generatedSymbol)
 
                 # Loop completion checks.
@@ -530,10 +530,12 @@ class OutputDecoder(BaseRNN):
                 self.max_node_count,
                 self.propagated_info_len,
             )
+
             prevGruOutput = prevGruOutput.view(
                 bigSampleCount,
-                self.max_node_count,
-                self.output_decoder_state_width)
+                self.output_decoder_state_width
+            )
+
             curAttention = self.decodeAttention(nodeInfoPropagatedBeamTensor, prevGruOutput)
 
             propagatedNodeInfoToAttend = torch.bmm(
@@ -599,3 +601,7 @@ class OutputDecoder(BaseRNN):
 
         bestBeam = decodedSymbolBeams[0]
         return self.symbolsTensor[bestBeam], bestBeam, None, None
+
+
+if __name__ == "__main__":
+    import pdb;pdb.set_trace()

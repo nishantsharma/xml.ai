@@ -36,12 +36,6 @@ class SupervisedTrainer(object):
         self.modelArgs = modelArgs
         self.device = device
 
-        # Apply random seed.
-        self.random_seed = appConfig.random_seed
-        if appConfig.random_seed is not None:
-            random.seed(appConfig.random_seed)
-            torch.manual_seed(appConfig.random_seed)
-
         if not os.path.exists(self.appConfig.training_dir):
             os.makedirs(self.appConfig.training_dir)
 

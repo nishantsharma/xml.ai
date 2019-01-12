@@ -1,4 +1,5 @@
 from __future__ import unicode_literals, print_function, division
+from collections import OrderedDict
 from io import open
 import unicodedata
 import string
@@ -97,20 +98,21 @@ class Hier2hier(ModuleBase):
             tensorBoardHook = nullTensorBoardHook
         node2Index = {}
         node2Parent = {}
-        treeIndex2NodeIndex2NbrIndices = {}
+        treeIndex2NodeIndex2NbrIndices = []
         for treeIndex, xmlTree in enumerate(xmlTreeList):
+            # Initialize nodeIndex2NbrIndices.
+            nodeIndex2NbrIndices = [ ]
+
             # Build map from node to a unique index for all nodes(including root) in the current tree.
             for nodeIndex, node in enumerate(xmlTree.iter()):
                 node2Index[node] = nodeIndex
-
-            # Initialize nodeIndex2NbrIndices and create an entry for root in it.
-            nodeIndex2NbrIndices = {}
+                nodeIndex2NbrIndices.append(None)
 
             # Link nodeIndex2NbrIndices with the global treeIndex2NodeIndex2NbrIndices.
-            treeIndex2NodeIndex2NbrIndices[treeIndex] = nodeIndex2NbrIndices
+            treeIndex2NodeIndex2NbrIndices.append(nodeIndex2NbrIndices)
 
-            # Parent of root is root.
             # Create an entry for tree root in nodeIndex2NbrIndices.
+            # Note: Parent of root is root.
             rootIndex = node2Index[xmlTree.getroot()]
             nodeIndex2NbrIndices[rootIndex] = (rootIndex, [])
 
@@ -152,7 +154,7 @@ class Hier2hier(ModuleBase):
                 collectOutput=collectOutput,
             )
 
-        if self.debug.runtests:
+        if self.debug.runtests and targetOutput is not None:
             nodeInfoTensor2 = self.nodeInfoEncoder.test_forward(node2Index, node2Parent, xmlTreeList)
             nodeInfoPropagatedTensor2 = self.nodeInfoPropagator.test_forward(treeIndex2NodeIndex2NbrIndices, nodeInfoEncodedTensor)
             decoderTestTensors2  = self.outputDecoder.test_forward(
@@ -169,8 +171,6 @@ class Hier2hier(ModuleBase):
                 print("For properly testing nodeInfoPropagator, disable batch norm by configuring with --disable_batch_norm.")
             print("{0}: diffSums {1:.6f}, {2:.6f}, {3:.6f}".format(
                 Hier2hier.n, diffSum1, diffSum2, diffSum3))
-            if Hier2hier.n % 100 == 99:
-                import pdb;pdb.set_trace()
 
             Hier2hier.n += 1
 
