@@ -49,10 +49,8 @@ class TagEncoder(ModuleBase):
         return torch.tensor(allTreeCodes, device=self.device)
 
 class NodeTextEncoder(EncoderRNN):
-    def __init__(self, textVocab, max_node_count, max_node_text_len, node_text_vec_len, device=None):
+    def __init__(self, textVocab, max_node_count, node_text_vec_len, device=None):
         super().__init__(
-            len(textVocab),
-            max_node_text_len,
             len(textVocab),
             node_text_vec_len,
             variable_lengths=True,
@@ -217,12 +215,9 @@ class NodeInfoEncoder(ModuleBase):
         self.nodeTextEncoder = NodeTextEncoder(
                 textVocab,
                 max_node_count,
-                max_node_text_len,
                 node_text_vec_len,
                 device=device)
         attribValueEncoder = EncoderRNN(
-                len(attribValueVocab),
-                max_attrib_value_len,
                 len(attribValueVocab),
                 attrib_value_vec_len,
                 device=device)

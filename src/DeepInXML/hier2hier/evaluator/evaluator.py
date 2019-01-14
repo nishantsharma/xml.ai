@@ -6,6 +6,7 @@ import torchtext
 import hier2hier
 from hier2hier.loss import NLLLoss
 from hier2hier.util import computeAccuracy
+from hier2hier.dataset import Hier2HierIterator
 
 class Evaluator(object):
     """ Class to evaluate models with given datasets.
@@ -36,10 +37,12 @@ class Evaluator(object):
         match = 0
         total = 0
 
-        batch_iterator = torchtext.data.BucketIterator(
+        batch_iterator = Hier2HierIterator(
+            preprocess_batch=model.preprocess_batch,
             dataset=data, batch_size=self.batch_size,
-            sort=False, # sort_key=lambda x: len(x.src),
+            sort=False, shuffle=True,
             device=device, train=False)
+
         tgt_vocab = data.fields[hier2hier.tgt_field_name].vocab
         pad = tgt_vocab.stoi[data.fields[hier2hier.tgt_field_name].pad_token]
 
@@ -48,14 +51,12 @@ class Evaluator(object):
         beamAccuracy_total = 0
 
         with torch.no_grad():
-            for batch in batch_iterator:
-                input_variables  = getattr(batch, hier2hier.src_field_name)
-                target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
+            for hier2hierBatch in batch_iterator:
+                input_variables  = getattr(hier2hierBatch.torchBatch, hier2hier.src_field_name)
+                target_variables, target_lengths = getattr(hier2hierBatch.torchBatch, hier2hier.tgt_field_name)
 
                 decodedSymbolProbs, decodedSymbols = model(
-                    input_variables,
-                    target_variables,
-                    target_lengths,
+                    hier2hierBatch,
                     collectOutput=calcAccuracy,
                     )
 
@@ -67,7 +68,7 @@ class Evaluator(object):
                                             device=device)
 
                     _, beamDecodedSymbols = model(
-                                            input_variables,
+                                            hier2hierBatch,
                                             beam_count=6,
                                             collectOutput=calcAccuracy,
                                             )

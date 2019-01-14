@@ -12,7 +12,7 @@ from hier2hier.trainer import SupervisedTrainer
 from hier2hier.models import Hier2hier
 from hier2hier.loss import Perplexity
 from hier2hier.optim import Optimizer
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import str2bool, computeAccuracy
@@ -42,16 +42,17 @@ trainer.load()
 # Load test dataset.
 test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
 
+# Get model from the trainer.
+h2hModel = trainer.model
+h2hModel.eval()
+
 # Batching test inputs into singletons.
-test_batch_iterator = torchtext.data.BucketIterator(
+test_batch_iterator = Hier2HierIterator(
+    preprocess_batch=h2hModel.preprocess_batch,
     dataset=test_dataset, batch_size=appConfig.batch_size,
     sort=False, shuffle=True, sort_within_batch=True,
     sort_key=lambda x: len(x.tgt),
     device=device, repeat=False)
-
-# Get model from the trainer.
-h2hModel = trainer.model
-h2hModel.eval()
 
 # In a loop, run the trained model over test dataset.
 for i, batch in enumerate(test_batch_iterator):

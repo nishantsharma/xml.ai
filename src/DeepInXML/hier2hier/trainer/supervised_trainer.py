@@ -9,7 +9,7 @@ import torchtext
 from torch import optim
 
 import hier2hier
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator
 from hier2hier.evaluator import Evaluator
 from hier2hier.loss import NLLLoss, Perplexity
 from hier2hier.optim import Optimizer
@@ -95,10 +95,7 @@ class SupervisedTrainer(object):
             model = Hier2hier(
                 self.modelArgs,
                 self.debug,
-                src.vocabs.tags,
-                src.vocabs.text,
-                src.vocabs.attribs,
-                src.vocabs.attribValues,
+                src.vocabs,
                 tgt.vocab,
                 tgt.sos_id,
                 tgt.eos_id,
@@ -110,7 +107,7 @@ class SupervisedTrainer(object):
                 optimizer = Optimizer(optim.Adam(model.parameters(), lr=self.modelArgs.learning_rate), max_grad_norm=5)
 
             # Initialize model weights.
-            model.reset_parameters()
+            model.reset_parameters(device)
         else:
             checkpointFolder = "{0}{1}{2}/".format(
                 self.appConfig.training_dir,
@@ -183,8 +180,10 @@ class SupervisedTrainer(object):
 
             # Model behaves very differently during test time when track_running_stats is true.
             # Saved model had it false. Fixing here.
-            model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
-            model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
+            if hasattr(model.nodeInfoEncoder.nodeTextEncoder, "textTensorBatchNorm"):
+                model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
+            if hasattr(model.nodeInfoPropagator, "batchNormPropagatedInfo"):
+                model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
 
             # A walk around to set optimizing parameters properly
             resume_optim = optimizer.optimizer
@@ -370,9 +369,10 @@ class SupervisedTrainer(object):
         epoch_accuracy_total = 0  # Reset every epoch
         epoch_beamAccuracy_total = 0  # Reset every epoch
 
-        batch_iterator = torchtext.data.BucketIterator(
+        batch_iterator = Hier2HierIterator(
+            preprocess_batch=self.model.preprocess_batch,
             dataset=training_data, batch_size=self.batch_size,
-            sort=False, shuffle=True, sort_within_batch=True,
+            sort=False, shuffle=True, sort_within_batch=False,
             sort_key=lambda x: len(x.tgt),
             device=self.device, repeat=False)
 
@@ -406,20 +406,15 @@ class SupervisedTrainer(object):
 
             self.model.train(True)
             calcAccuracy=(self.epoch % 100 == 0)
-            for batch in batch_generator:
+            for hier2hierBatch in batch_generator:
                 self.step += 1
                 self.epoch = int(self.step / steps_per_epoch)
 
                 self.tensorBoardHook.batchNext()
                 self.tensorBoardHook.batch = self.step % steps_per_epoch
 
-                input_variables = getattr(batch, hier2hier.src_field_name)
-                target_variables, target_lengths = getattr(batch, hier2hier.tgt_field_name)
-
                 loss, accuracy, beamAccuracy = self._train_batch(
-                    input_variables,
-                    target_variables,
-                    target_lengths,
+                    hier2hierBatch,
                     calcAccuracy=calcAccuracy,
                     )
                 if self.debug.profile:
@@ -509,24 +504,22 @@ class SupervisedTrainer(object):
             print(log_msg)
 
     @methodProfiler
-    def _train_batch(self, input_variable, target_variable, target_lengths, calcAccuracy=False):
+    def _train_batch(self, hier2hierBatch, calcAccuracy=False):
         with blockProfiler("Input Forward Propagation"):
             # Forward propagation
             decodedSymbolProbs, decodedSymbols = self.model(
-                                    input_variable,
-                                    target_variable,
-                                    target_lengths,
+                                    hier2hierBatch,
                                     self.tensorBoardHook,
                                     collectOutput=calcAccuracy,
                                     )
 
+        target_variable = hier2hierBatch.targetOutputsByToi
+        target_lengths = hier2hierBatch.targetOutputLengthsByToi
         if calcAccuracy:
             accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
             print("Batch Accuracy {0}".format(accuracy))
             _, beamDecodedSymbols = self.model(
-                                input_variable,
-                                target_variable,
-                                target_lengths,
+                                hier2hierBatch,
                                 beam_count=4,
                                 collectOutput=calcAccuracy,
                                 tensorBoardHook=self.tensorBoardHook,

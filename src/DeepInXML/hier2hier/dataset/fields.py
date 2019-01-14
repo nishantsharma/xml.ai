@@ -24,7 +24,7 @@ class SourceField(torchtext.data.RawField):
 
     def build_vocabs(self, hier_dataset, max_size=None):
         # Collect all symbols.
-        inputTags, inputAttribs, inputAttribValues, inputText = Counter(), Counter(), Counter(), Counter()
+        inputTags, inputAttrs, inputAttrValues, inputText = Counter(), Counter(), Counter(), Counter()
         for inXmlObj in hier_dataset.src:
             for xmlNode in inXmlObj.getroot().iter():
                 # Node tag.
@@ -36,21 +36,21 @@ class SourceField(torchtext.data.RawField):
                     inputText[textSym] += 1
                 inputText[SYM_EOS] += 1
 
-                for attrbName, attribValue in xmlNode.attrib.items():
-                    # Attrib name.
-                    inputAttribs[attribName] += 1
+                for attrName, attrValue in xmlNode.attrib.items():
+                    # Attr name.
+                    inputAttrs[attrName] += 1
 
-                    # Attrib values.
-                    inputAttribValues[SYM_SOS] += 1
-                    for attribSym in attribValue:
-                        inputAttribValues[attribSym] += 1
-                    inputAttribValues[SYM_EOS] += 1
+                    # Attr values.
+                    inputAttrValues[SYM_SOS] += 1
+                    for attrSym in attrValue:
+                        inputAttrValues[attrSym] += 1
+                    inputAttrValues[SYM_EOS] += 1
 
         # Build all vocabs.
         self.vocabs = AttrDict()
         self.vocabs.tags = torchtext.vocab.Vocab(inputTags, max_size)
-        self.vocabs.attribs = torchtext.vocab.Vocab(inputAttribs, max_size)
-        self.vocabs.attribValues = torchtext.vocab.Vocab(inputAttribValues, max_size)
+        self.vocabs.attrs = torchtext.vocab.Vocab(inputAttrs, max_size)
+        self.vocabs.attrValues = torchtext.vocab.Vocab(inputAttrValues, max_size)
         self.vocabs.text = torchtext.vocab.Vocab(inputText, max_size)
 
 class TargetField(torchtext.data.Field):

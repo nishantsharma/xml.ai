@@ -55,18 +55,28 @@ def BeamSearch(
     # Each tuple:
     #   Shape: SampleCount X CurBeamCount X ModelStateShape.
     #   Data: Vectors representing input state.
-    curBeamStatesTuple = tuple(
-        (
-            None if modelStartState is None
-            else (
+    curBeamStatesTuple = []
+    for modelStartState in modelStartStateTuple:
+        if modelStartState is None:
+            curBeamStatesTuple.append(None)
+        elif isinstance(modelStartState, list):
+            # Reshape list as per-sample-list of per-beam-lists.
+            curBeamStatesTuple.append(
+                [
+                    modelStartState[n*curBeamCount: (n+1)*curBeamCount]
+                    for n in range(sampleCount)
+                ]
+            )
+        else:
+            assert(isinstance(modelStartState, torch.Tensor))
+            # Reshape tensor by inserting beam dimension.
+            curBeamStatesTuple.append(
                 modelStartState.view(
                     [sampleCount, curBeamCount] 
                     + list(modelStartState.shape[1:])
                 )
             )
-        )
-        for modelStartState in modelStartStateTuple
-    )
+    curBeamStatesTuple = tuple(curBeamStatesTuple)
 
     # List used to reconstruct the character trail in the winning beam(s).
     # Each list element

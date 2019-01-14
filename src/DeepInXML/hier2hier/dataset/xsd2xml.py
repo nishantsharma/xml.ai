@@ -64,11 +64,15 @@ class GenXML:
 
 
     # start a tag with name
-    def start_tag(self, name):
+    def start_tag(self, node, name):
         x = '<' + name
         if self.root:
             self.root = False
             x += ' ' + self.ns_map_str()
+
+        for attr, attrValue in node.attributes.items():
+            x += " " + attr + "=\"" + self.genval(attrValue.type.id) + "\""
+
         x += '>'
         return x
 
@@ -220,30 +224,30 @@ class GenXML:
                 if node.type.is_simple():
                     print('<!--simple content-->', file=fout)
                     tp = str(node.type.content_type)
-                    print(self.start_tag(n) + self.genval(tp) + self.end_tag(n), file=fout)
+                    print(self.start_tag(node, n) + self.genval(tp) + self.end_tag(n), file=fout)
                 else:
                     print('<!--complex content-->', file=fout)
-                    print(self.start_tag(n), file=fout)
+                    print(self.start_tag(node, n), file=fout)
                     self.group2xml(node.type.content_type, fout)
                     print(self.end_tag(n), file=fout)
             elif isinstance(node.type, XsdAtomicBuiltin):
                 n = self.remove_ns(node.name)
                 tp = node.type.id
-                print(self.start_tag(n) + self.genval(tp) + self.end_tag(n), file=fout)
+                print(self.start_tag(node, n) + self.genval(tp) + self.end_tag(n), file=fout)
             elif isinstance(node.type, XsdSimpleType):
                 n = self.remove_ns(node.name)
                 if isinstance(node.type, XsdList):
                     print('<!--simpletype: list-->', file=fout)
                     tp = str(node.type.item_type)
-                    print(self.start_tag(n) + self.genval(tp) + self.end_tag(n), file=fout)
+                    print(self.start_tag(node, n) + self.genval(tp) + self.end_tag(n), file=fout)
                 elif isinstance(node.type, XsdUnion):
                     print('<!--simpletype: union.-->', file=fout)
                     print('<!--default: using the 1st type-->', file=fout)
                     tp = str(node.type.member_types[0].base_type)
-                    print(self.start_tag(n) + self.genval(tp) + self.end_tag(n), file=fout)
+                    print(self.start_tag(node, n) + self.genval(tp) + self.end_tag(n), file=fout)
                 else:
                     tp = str(node.type.base_type)
-                    print(self.start_tag(n) + self.genval(tp) + self.end_tag(n), file=fout)
+                    print(self.start_tag(node, n) + self.genval(tp) + self.end_tag(n), file=fout)
             else:
                 raise NotImplemented('ERROR: unknown type: ' + node.type)
 

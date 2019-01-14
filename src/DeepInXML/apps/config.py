@@ -1,6 +1,7 @@
 import os, argparse, logging, glob, random
 from orderedattrdict import AttrDict
 from enum import Enum
+from importlib import import_module
 
 import torch
 from torch.optim.lr_scheduler import StepLR
@@ -22,6 +23,36 @@ class AppMode(Enum):
     Generate=0
     Train=1
     Evaluate=2
+
+# Overridden by domain specific defaults.
+modelArgsGlobalDefaults = {
+    # XML Schema limits.
+    "max_node_count": None,
+    "node_type_count": None,
+    "total_attrs_count": None,
+    "value_symbols_count": None,
+    "max_node_fanout": None,
+    "max_node_text_len": None,
+    "max_attrib_value_len": None,
+    "max_output_len": None,
+
+    # Size meta-parameters of the generated neural network.
+    "node_text_vec_len": 192,
+    "attrib_value_vec_len": 64,
+    "node_info_propagator_stack_depth": 3,
+    "propagated_info_len": 256,
+    "output_decoder_stack_depth": 1,
+    "output_decoder_state_width": 200,
+
+    # Other meta-parameters of the generated neural network.
+    "input_dropout_p": 0.1,
+    "dropout_p": 0.1,
+    "use_attention": True,
+    "teacher_forcing_ratio": 0.50,
+    "learning_rate": 0.001,
+    "clip_gradient": False,
+    "disable_batch_norm": None,
+}
 
 def loadConfig(mode):
     def basic_arguments_parser(add_help):
@@ -52,6 +83,10 @@ def loadConfig(mode):
     # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest
     basicAppConfig, _ = basic_arguments_parser(False).parse_known_args()
     postProcessAppConfig(basicAppConfig, mode)
+
+    # Get domain defaults.
+    domainModule = import_module("domains." + basicAppConfig.domain)
+    modelArgsDefaults = AttrDict({ **modelArgsGlobalDefaults, **domainModule.modelArgsDefaults})
 
     # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
     parser = basic_arguments_parser(True)
@@ -93,53 +128,75 @@ def loadConfig(mode):
                         help="Print progress information, after every so many batches.")
 
     # XML Schema params.
-    parser.add_argument("--max_node_count", type = int, default = None,
+    parser.add_argument("--max_node_count", type = int,
+                        default = modelArgsDefaults.max_node_count,
                         help="Maximum number of nodes in an XML file.")
-    parser.add_argument("--total_attrs_count", type = int, default = None,
+    parser.add_argument("--total_attrs_count", type = int,
+                        default = modelArgsDefaults.total_attrs_count,
                         help="Total number of known attributes in the schema.")
-    parser.add_argument("--value_symbols_count", type = int, default = None,
+    parser.add_argument("--value_symbols_count", type = int,
+                        default = modelArgsDefaults.value_symbols_count,
                         help="Total number of symbols used in attribute value strings.")
-    parser.add_argument("--max_node_fanout", type = int, default = None,
+    parser.add_argument("--max_node_fanout", type = int,
+                        default = modelArgsDefaults.max_node_fanout,
                         help="Maximum connectivity fanout of an XML node.")
-    parser.add_argument("--max_node_text_len", type = int, default = None,
+    parser.add_argument("--max_node_text_len", type = int,
+                        default = modelArgsDefaults.max_node_text_len,
                         help="Maximum length of text attribute in a node.")
-    parser.add_argument("--max_attrib_value_len", type = int, default = None,
+    parser.add_argument("--max_attrib_value_len", type = int,
+                        default = modelArgsDefaults.max_attrib_value_len,
                         help="Maximum length of any text attribute value in a node.")
-    parser.add_argument("--max_output_len", type = int, default = None,
+    parser.add_argument("--max_output_len", type = int,
+                        default = modelArgsDefaults.max_output_len,
                         help="Maximum length of the output file.")
 
     # Size meta-parameters of the generated neural network.
-    parser.add_argument("--node_text_vec_len", type = int, default = 192,
+    parser.add_argument("--node_text_vec_len", type = int,
+                        default = modelArgsDefaults.node_text_vec_len,
                         help="Length of encoded vector for node text.")
-    parser.add_argument("--attrib_value_vec_len", type = int, default = 64,
+    parser.add_argument("--attrib_value_vec_len", type = int,
+                        default = modelArgsDefaults.attrib_value_vec_len,
                         help="Length of an encoded attribute value.")
-    parser.add_argument("--node_info_propagator_stack_depth", type = int, default = 3,
+    parser.add_argument("--node_info_propagator_stack_depth", type = int,
+                        default = modelArgsDefaults.node_info_propagator_stack_depth,
                         help="Depth of the graph layer stack. This determines the number of "
                         + "hops that information would propagate in the graph inside nodeInfoPropagator.")
-    parser.add_argument("--propagated_info_len", type = int, default = 256,
+    parser.add_argument("--propagated_info_len", type = int,
+                        default = modelArgsDefaults.propagated_info_len,
                         help="Length of node information vector, when being propagated.")
-    parser.add_argument("--output_decoder_stack_depth", type = int, default = 1,
+    parser.add_argument("--output_decoder_stack_depth", type = int,
+                        default = modelArgsDefaults.output_decoder_stack_depth,
                         help="Stack depth of node decoder.")
-    parser.add_argument("--output_decoder_state_width", type = int, default = 200,
+    parser.add_argument("--output_decoder_state_width", type = int,
+                        default = modelArgsDefaults.output_decoder_state_width,
                         help="Width of GRU cell in output decoder.")
 
     # Other meta-parameters for training the neural network.
-    parser.add_argument("--input_dropout_p", type = float, default = None if basicAppConfig.resume else 0.1,
+    parser.add_argument("--input_dropout_p", type = float,
+                        default = None if basicAppConfig.resume else modelArgsDefaults.input_dropout_p,
                         help="Input dropout probability.")
-    parser.add_argument("--dropout_p", type = float, default = None if basicAppConfig.resume else 0.1,
+    parser.add_argument("--dropout_p", type = float,
+                        default = None if basicAppConfig.resume else modelArgsDefaults.dropout_p,
                         help="Dropout probability.")
-    parser.add_argument("--use_attention", type = int, default = True,
+    parser.add_argument("--use_attention", type = int,
+                        default = modelArgsDefaults.use_attention,
                         help="Use attention while selcting most appropriate.")
-    parser.add_argument("--teacher_forcing_ratio", type = int, default = 0.50,
+    parser.add_argument("--teacher_forcing_ratio", type = int,
+                        default = modelArgsDefaults.teacher_forcing_ratio,
                         help="Teacher forcing ratio to using during decoder training.")
-    parser.add_argument("--learning_rate", type = float, default = 0.001,
+    parser.add_argument("--learning_rate", type = float,
+                        default = modelArgsDefaults.learning_rate,
                         help="Learning rate to use during training.")
-    parser.add_argument('--clip_gradient', type=float, default=None,
+    parser.add_argument('--clip_gradient', type=float,
+                        default=modelArgsDefaults.clip_gradient,
                         help='gradient clipping')
-    parser.add_argument("--disable_batch_norm", type = str2bool, default = False,
+    parser.add_argument("--disable_batch_norm", type = str2bool,
+                        default = modelArgsDefaults.disable_batch_norm,
                         help="Disable batch norm. Needed for running some tests.")
+
     if mode == AppMode.Evaluate:
-        parser.add_argument("--beam_count", type = int, default = None,
+        parser.add_argument("--beam_count", type = int,
+                        default = None,
                         help="Number of beams to use when decoding. Leave as None for not using beam decoding.")
 
     # Parse args to build app config dictionary.
@@ -149,22 +206,7 @@ def loadConfig(mode):
     postProcessAppConfig(appConfig, mode)
 
     # Spin out model arguments from app configuration.
-    modelArgs = levelDown(appConfig,
-            "modelArgs",
-            [
-                # XML Schema limits.
-                "max_node_count", "node_type_count", "total_attrs_count", "value_symbols_count",
-                "max_node_fanout", "max_node_text_len", "max_attrib_value_len", "max_output_len",
-
-                # Size meta-parameters of the generated neural network.
-                "node_text_vec_len", "attrib_value_vec_len", "node_info_propagator_stack_depth",
-                "propagated_info_len", "output_decoder_stack_depth", "output_decoder_state_width",
-
-                # Other meta-parameters of the generated neural network.
-                "input_dropout_p", "dropout_p", "use_attention", "teacher_forcing_ratio", "learning_rate",
-                "clip_gradient", "disable_batch_norm",
-            ]
-        )
+    modelArgs = levelDown(appConfig, "modelArgs", modelArgsDefaults.keys())
         
     # Apply random seed.
     if appConfig.random_seed is not None:

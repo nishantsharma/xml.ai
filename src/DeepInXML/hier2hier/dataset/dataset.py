@@ -44,3 +44,15 @@ class Hier2HierDataset(torchtext.data.Dataset):
             examples.append(Hier2HierExample(inXml, outStr))
 
         super().__init__(examples, fields=fields)
+
+class Hier2HierIterator(torchtext.data.BucketIterator):
+    def __init__(self, *argc, preprocess_batch=None, **kargv):
+        if preprocess_batch is None:
+            preprocess_batch = lambda x:(x, None)
+        self.preprocess_batch = preprocess_batch
+
+        super().__init__(*argc, **kargv)
+
+    def __iter__(self):
+        for batch in super().__iter__():
+            yield self.preprocess_batch(batch)

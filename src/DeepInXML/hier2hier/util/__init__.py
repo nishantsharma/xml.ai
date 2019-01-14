@@ -8,12 +8,23 @@ from .tensorboard import TensorBoardHook
 
 nullTensorBoardHook = TensorBoardHook(0)
 
-def invertPermutation(perm):
-    inverse = [0] * len(perm)
-    for i, p in enumerate(perm):
-        inverse[p] = i
-    return inverse
+def invertPermutation(perm, asList=None):
+    if isinstance(perm, dict):
+        keys = perm.keys()
+        values = perm.values()
+    else:
+        keys = range(len(perm))
+        values = perm
 
+    if set(values) == set(range(len(perm))):
+        # Build a list.
+        inverse = [ None for _ in range(len(perm)) ]
+        for k, v in zip(keys, values):
+            inverse[v] = k
+        return inverse
+    else:
+        return sorted(list(zip(values, keys)))
+    
 def onehotencode(n, i):
     return [1.0 if j==i else 0.0 for j in range(n)]
 
