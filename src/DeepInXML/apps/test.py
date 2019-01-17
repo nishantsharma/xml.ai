@@ -1,116 +1,111 @@
-import os
-import argparse
-import logging
+import os, sys, argparse, logging, json
+from orderedattrdict import AttrDict
 
 import torch
+from torch.optim.lr_scheduler import StepLR
 import torchtext
 
-import seq2seq
-from seq2seq.trainer import SupervisedTrainer
-from seq2seq.models import EncoderRNN, DecoderRNN, TopKDecoder, Seq2seq
-from seq2seq.loss import Perplexity
-from seq2seq.dataset import SourceField, TargetField
-from seq2seq.evaluator import Predictor, Evaluator
-from seq2seq.util.checkpoint import Checkpoint
+import xml.etree.ElementTree as ET
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--train_path', action='store', dest='train_path',
-                    help='Path to train data')
-parser.add_argument('--dev_path', action='store', dest='dev_path',
-                    help='Path to dev data')
-parser.add_argument('--expt_dir', action='store', dest='expt_dir', default='./experiment',
-                    help='Path to experiment directory. If load_checkpoint is True, then path to checkpoint directory has to be provided')
-parser.add_argument('--load_checkpoint', action='store', dest='load_checkpoint',
-                    help='The name of the checkpoint to load, usually an encoded time string')
-parser.add_argument('--resume', action='store_true', dest='resume',
-                    default=False,
-                    help='Indicates if training has to be resumed from the latest checkpoint')
-parser.add_argument('--log-level', dest='log_level',
-                    default='info',
-                    help='Logging level.')
+import hier2hier
+from hier2hier.trainer import SupervisedTrainer
+from hier2hier.models import Hier2hier
+from hier2hier.loss import Perplexity
+from hier2hier.optim import Optimizer
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, GeneratedXmlDataset
+from hier2hier.evaluator import Predictor
+from hier2hier.util.checkpoint import Checkpoint
+from hier2hier.util import str2bool
 
-opt = parser.parse_args()
+from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder
 
-LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, opt.log_level.upper()))
-logging.info(opt)
+def smallDataTest(appConfig, trainer):
+    generatorArgs = {
+        "node_count_range": (1, 2),
+        "max_child_count": 4,
+        "taglen_range": (0, 5),
 
-# Prepare dataset
-src = SourceField()
-tgt = TargetField()
-max_len = 50
-def len_filter(example):
-    return len(example.src) <= max_len and len(example.tgt) <= max_len
-train = torchtext.data.TabularDataset(
-    path=opt.train_path, format='tsv',
-    fields=[('src', src), ('tgt', tgt)],
-    filter_pred=len_filter
-)
-dev = torchtext.data.TabularDataset(
-    path=opt.dev_path, format='tsv',
-    fields=[('src', src), ('tgt', tgt)],
-    filter_pred=len_filter
-)
-src.build_vocab(train, max_size=50000)
-tgt.build_vocab(train, max_size=50000)
-input_vocab = src.vocab
-output_vocab = tgt.vocab
+        "attr_count_range": (0, 1),
+        #"attr_len_range": (0, 5),
+        #"attr_value_len_range": (0, 20),
 
-# Prepare loss
-weight = torch.ones(len(tgt.vocab))
-pad = tgt.vocab.stoi[tgt.pad_token]
-loss = Perplexity(weight, pad)
-if torch.cuda.is_available():
-    loss.cuda()
+        "text_len_range": (1, 7),
+        "tail_len_range": (-20, 10),
+    }
+    for i in range(appConfig.repetitionCount):
+        test_data = GeneratedXmlDataset(1, generatorArgs, fields=trainer.fields)
+        trainer.train(test_data)
 
-if opt.load_checkpoint is not None:
-    logging.info("loading checkpoint from {}".format(os.path.join(opt.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, opt.load_checkpoint)))
-    checkpoint_path = os.path.join(opt.expt_dir, Checkpoint.CHECKPOINT_DIR_NAME, opt.load_checkpoint)
-    checkpoint = Checkpoint.load(checkpoint_path)
-    seq2seq = checkpoint.model
-    input_vocab = checkpoint.input_vocab
-    output_vocab = checkpoint.output_vocab
-else:
-    seq2seq = None
-    optimizer = None
-    if not opt.resume:
-        # Initialize model
-        hidden_size=128
-        bidirectional = True
-        encoder = EncoderRNN(len(src.vocab), max_len, hidden_size,
-                             bidirectional=bidirectional,
-                             rnn_cell='lstm',
-                             variable_lengths=True)
-        decoder = DecoderRNN(len(tgt.vocab), max_len, hidden_size * 2,
-                             dropout_p=0.2, use_attention=True,
-                             bidirectional=bidirectional,
-                             rnn_cell='lstm',
-                             eos_id=tgt.eos_id, sos_id=tgt.sos_id)
-        seq2seq = Seq2seq(encoder, decoder)
-        if torch.cuda.is_available():
-            seq2seq.cuda()
 
-        for param in seq2seq.parameters():
-            param.data.uniform_(-0.08, 0.08)
+def singleElementTest(appConfig, trainer):
+    raise NotImplementedError()
 
-    # train
-    t = SupervisedTrainer(loss=loss, batch_size=32,
-                          checkpoint_every=50,
-                          print_every=10, expt_dir=opt.expt_dir)
+def fiveTreesTest(appConfig, trainer):
+    raise NotImplementedError()
 
-    seq2seq = t.train(seq2seq, train,
-                      num_epochs=6, dev_data=dev,
-                      optimizer=optimizer,
-                      teacher_forcing_ratio=0.5,
-                      resume=opt.resume)
+def permutationTest(appConfig, trainer):
+    raise NotImplementedError()
 
-evaluator = Evaluator(loss=loss, batch_size=32)
-dev_loss, accuracy = evaluator.evaluate(seq2seq, dev)
-assert dev_loss < 1.5
+def encoderPermutationTest(appConfig, trainer):
+    raise NotImplementedError()
 
-beam_search = Seq2seq(seq2seq.encoder, TopKDecoder(seq2seq.decoder, 3))
+def batchGraphConsistencyTest(appConfig, trainer):
+    raise NotImplementedError()
 
-predictor = Predictor(beam_search, input_vocab, output_vocab)
-inp_seq = "1 3 5 7 9"
-seq = predictor.predict(inp_seq.split())
-assert " ".join(seq[:-1]) == inp_seq[::-1]
+def spotlightTest(appConfig, trainer):
+    raise NotImplementedError()
+
+def beamTest(appConfig, trainer):
+    raise NotImplementedError()
+
+def main():
+    # Obtain app configuration object.
+    appConfig, modelArgs = loadConfig(AppMode.Test)
+
+    # Setup logging
+    LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
+    logging.basicConfig(filename=appConfig.runFolder + "training.log", format=LOG_FORMAT, level=getattr(logging, appConfig.log_level.upper()))
+
+    # Log config info.
+    logging.info("Application Config: {0}".format(json.dumps(vars(appConfig), indent=2)))
+    logging.info("Unprocessed Model Arguments: {0}".format(json.dumps(modelArgs, indent=2)))
+
+    # Pick the device, preferably GPU where we run our application.
+    device = torch.device("cuda") if torch.cuda.is_available() else None
+
+    # Trainer object is requred to
+    trainer = SupervisedTrainer(appConfig, modelArgs, device)
+
+    # Test the model.
+    for testFunc in [
+        # Must not crash on small data. Results must match with direct component calls.
+        smallDataTest,
+
+        # Output for a single tree should match results created without using
+        # batch pre-processing.
+        singleElementTest,
+
+        # Tree position changes should not affect the output of an individual tree.
+        # That should match with singleton call. 
+        fiveTreesTest,
+
+        # Permuting the trees and node-attributes should not change anything.
+        permutationTest,
+
+        # Permuting the nodes should not change encoding output.
+        encoderPermutationTest,
+
+        # Construct XML from the graph.
+        batchGraphConsistencyTest,
+
+        # Next iteration of spotlight should have all good reachable nodes and no bad
+        # reachable node.
+        spotlightTest,
+
+        # Single beam results should match with multi-beam.
+        # Multi-beam results should always be better than single beam.
+        beamTest,
+    ]:
+        testFunc(appConfig, trainer)
+
+main()

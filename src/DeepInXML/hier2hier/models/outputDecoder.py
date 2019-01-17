@@ -248,19 +248,24 @@ class OutputDecoder(ModuleBase):
     @methodProfiler
     def forward(self,
             sampleCount,
-            attnReadyPosNbrhoodGraph,
-            attnReadyVecsByGni,
+            posNbrhoodGraphByGndtol,
+            initSpotlight,
+            attnReadyVecsByGndtol,
             targetOutputsByTdol,
             targetOutputLengthsByTdol,
-            gni2Tdol,
+            gndtol2Tdol,
             tdol2Toi,
             tensorBoardHook,
             attentionSpotLight=None,
             collectOutput=None,
             beam_count=None,
+            max_output_len=None,
         ):
+        if max_output_len is None:
+            max_output_len=max(self.max_output_len, max_output_len)
+
         # Dropout parts of data for robustness.
-        attnReadyVecsByGni = self.input_dropout(attnReadyVecsByGni)
+        attnReadyVecsByGndtol = self.input_dropout(attnReadyVecsByGndtol)
 
         if collectOutput is None:
             collectOutput = not(self.training)
@@ -268,9 +273,9 @@ class OutputDecoder(ModuleBase):
         if not self.training and beam_count is not None:
             return self.beamSearch(
                 sampleCount,
-                attnReadyPosNbrhoodGraph,
-                attnReadyVecsByGni,
-                gni2Tdol,
+                posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                gndtol2Tdol,
                 tdol2Toi,
                 beam_count)
 
@@ -279,10 +284,10 @@ class OutputDecoder(ModuleBase):
                 # Get inverse of the TL order.
                 dimSqueezePoints = self.computeDimSqueezePoints(targetOutputLengthsByTdol)
             else:
-                dimSqueezePoints = [(self.max_output_len, sampleCount)]
+                dimSqueezePoints = [(max_output_len, sampleCount)]
 
             # Initial spotlight indices.
-            sli2Gni = self.attentionSpotlight.initialSpotLight(attnReadyPosNbrhoodGraph)
+            sli2Gndtol = initSpotlight
 
             # Build first symbol input of the loop.
             curSymbol = self.sos_id
@@ -324,15 +329,15 @@ class OutputDecoder(ModuleBase):
                     curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
                     curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
 
-                    # Shorten sli2gni by dropping all trees
+                    # Shorten sli2gndtol by dropping all trees
                     # with TDOl index >= sampleIndexLimit.
-                    remainingSliIndices = (gni2Tdol[sli2Gni] < sampleIndexLimit)
+                    remainingSliIndices = (gndtol2Tdol[sli2Gndtol] < sampleIndexLimit)
                     remainingSliIndices = torch.LongTensor([
                         index
                         for index, enabled in enumerate(remainingSliIndices.tolist())
                         if enabled
                     ])
-                    sli2Gni = sli2Gni[remainingSliIndices]
+                    sli2Gndtol = sli2Gndtol[remainingSliIndices]
                     if targetOutputsByTdol is not None:
                         targetOutputsByTdol = targetOutputsByTdol.narrow(0, 0, sampleIndexLimit)
 
@@ -357,13 +362,13 @@ class OutputDecoder(ModuleBase):
                     # Compute next attention.
                     with blockProfiler("ATTENTION-DECODE"):
                         (
-                            sli2Gni,
+                            sli2Gndtol,
                             attnReadyInfoCollapsedByTdol
                         ) = self.attentionSpotlight(
-                            attnReadyPosNbrhoodGraph,
-                            attnReadyVecsByGni,
-                            sli2Gni,
-                            gni2Tdol,
+                            posNbrhoodGraphByGndtol,
+                            attnReadyVecsByGndtol,
+                            sli2Gndtol,
+                            gndtol2Tdol,
                             curGruOutput,
                             sampleIndexLimit,
                             beamMode=False,
@@ -467,7 +472,7 @@ class OutputDecoder(ModuleBase):
                     +
                     [
                         padTensorColumn
-                        for _ in range(self.max_output_len - symbolColumnsCount)
+                        for _ in range(max_output_len - symbolColumnsCount)
                     ],
                     -2
                 )
@@ -477,16 +482,17 @@ class OutputDecoder(ModuleBase):
             checkNans(outputSymbolTensors)
             return outputSymbolTensors, outputSymbols, teacherForcedSelections, decoderTestTensors
 
+    @methodProfiler
     def beamSearch(self,
                 sampleCount,
-                attnReadyPosNbrhoodGraph,
-                attnReadyVecsByGni,
-                gni2Tdol,
+                posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                gndtol2Tdol,
                 tdoil2Toi,
                 beam_count,
     ):
         # Initial spotlight indices.
-        sli2Gni = self.attentionSpotlight.initialSpotLight(attnReadyPosNbrhoodGraph)
+        sli2Gndtol = self.attentionSpotlight.initialSpotLight(posNbrhoodGraphByGndtol)
 
         bigSampleCount = sampleCount * beam_count
         # Build first GruOutput to kickstart the loop.
@@ -518,16 +524,16 @@ class OutputDecoder(ModuleBase):
             vocabLen = self.symbolsTensor.shape[0]
             bigSampleCount = sampleCount * beamCount
             (prevGruOutput, prevGruState) = prevBeamStatesTuple
-            nonlocal sli2Gni
+            nonlocal sli2Gndtol
 
             (
-                sli2Gni,
+                sli2Gndtol,
                 attnReadyInfoCollapsedByTdol,
             ) = self.attentionSpotlight(
-                attnReadyPosNbrhoodGraph,
-                attnReadyVecsByGni,
-                sli2Gni,
-                gni2Tdol,
+                posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                sli2Gndtol,
+                gndtol2Tdol,
                 prevGruOutput,
                 sampleCount,
                 beamMode=True,

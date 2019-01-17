@@ -60,9 +60,12 @@ class HierarchyPropagator(ModuleBase):
         nodeInfoPropagatedByDfo = self.input_dropout(nodeInfoPropagatedByDfo)
 
         # Apply batch norm.
-        if not self.disable_batch_norm:
+        if not self.disable_batch_norm and nodeInfoPropagatedByDfo.shape[0] > 1:
             nodeInfoPropagatedByDfo = self.batchNormPropagatedInfo(nodeInfoPropagatedByDfo)
 
+        decreasingFanoutsFactor = decreasingFanoutsFactor.view(
+            list(decreasingFanoutsFactor.shape) + [1]
+        )
         # Run propagation loop.
         for i in range(self.node_info_propagator_stack_depth):
             # Prepare parent info for propagation into new nodeInfoPropagated.
@@ -88,9 +91,6 @@ class HierarchyPropagator(ModuleBase):
 
             if childrenInfoPropagatedByDfo.shape[0]:
                 # Normalize childrenInfoPropagatedByDfo by child count.
-                decreasingFanoutsFactor = decreasingFanoutsFactor.view(
-                    list(decreasingFanoutsFactor.shape) + [1]
-                )
                 childrenInfoPropagatedByDfo = childrenInfoPropagatedByDfo / decreasingFanoutsFactor
 
             # There may still be some rows that do not have children.
@@ -102,10 +102,12 @@ class HierarchyPropagator(ModuleBase):
                 nodeInfoPropgatedByDfoWhenNoChild = nodeInfoPropagatedByDfo[deficitStart:]
 
             # Propagate children information using GRU cell to obtain updated node info.
-            nodeInfoPropagatedByDfo = self.overlayChildrenInfo(
-                nodeInfoPropagatedByDfo[0:deficitStart],
-                childrenInfoPropagatedByDfo,
-            )
+            nodeInfoPropagatedByDfo = nodeInfoPropagatedByDfo[0:deficitStart]
+            if childrenInfoPropagatedByDfo.shape[0]:
+                nodeInfoPropagatedByDfo = self.overlayChildrenInfo(
+                    nodeInfoPropagatedByDfo,
+                    childrenInfoPropagatedByDfo,
+                )
 
             if finalDeficit:
                 nodeInfoPropagatedByDfo = torch.cat([

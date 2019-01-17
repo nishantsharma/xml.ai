@@ -27,11 +27,12 @@ This package requires Python 3.6. We recommend creating a new virtual environmen
 
 ### Prerequisites
 
-* Install python. Use following commands on MacOS for installation using macports,
+* Install python and ninja. Use following commands on MacOS for installation using macports,
   $ sudo port install python36
   $ sudo port install py36-pip
   $ sudo port select --set pip pip36
   $ sudo port select --set python python36
+  $ sudo port install ninja 
 
 * Install all python packages mentioned in requirements.txt. 
   $ sudo pip install -r requirements.txt

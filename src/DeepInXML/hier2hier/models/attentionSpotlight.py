@@ -8,6 +8,9 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 from hier2hier.models.moduleBase import ModuleBase
+from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
+from hier2hier.models.accumulateByValue import AccumulateByValue, AccumulateSumByValue, AccumulateMaxByValue
+from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
 
 class AttentionSpotlight(ModuleBase):
     """
@@ -29,8 +32,10 @@ class AttentionSpotlight(ModuleBase):
                 attnReadyVecLen,
                 queryVecLen,
                 headCount=1,
-                device=None):
+                device=None,
+                checkGraph=True):
         super().__init__(device)
+        self.checkGraph = checkGraph
 
         # Network for attention model between query and attention ready inputs.
         self.attentionCorrelation = nn.Bilinear(
@@ -38,35 +43,32 @@ class AttentionSpotlight(ModuleBase):
             queryVecLen,
             headCount,
         )
+        self.accumulateSumByValue = AccumulateSumByValue()
+        self.accumulateMaxByValue = AccumulateMaxByValue()
+        self.spotNeighborsExplorer = SpotNeighborsExplorer()
 
     def reset_parameters(self, device):
         self.attentionCorrelation.reset_parameters()
-        
-    def initialSpotLight(self, attnReadyPosNbrhoodGraph):
-        """
-        Initially, look everywhere.
-        """
-        sli2gni = list(range(len(attnReadyPosNbrhoodGraph)))
-        return torch.LongTensor(sli2gni, device=self.device)
 
+    @methodProfiler
     def forward(self,
-                attnReadyPosNbrhoodGraph,
-                attnReadyVecsByGni,
-                prevSli2Gni,
-                gni2Tdol,
+                posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                prevSli2Gndtol,
+                gndtol2Tdol,
                 curQueryVec,
                 treeCount,
                 beamMode,
     ):
         """
         Inputs:
-            attnReadyVecsByGni:
+            attnReadyVecsByGndtol:
                 Shape: graphSize X attnReadyVecLen
                 Data: Attention ready vectors representing items that can be attended to.
-            prevSli2Gni:
+            prevSli2Gndtol:
                 Shape: len(prevSLI)
                 Data: GNI index at each previous spotlight index position.
-            gni2Tdol:
+            gndtol2Tdol:
                 Shape: len(GNI)
                 Data: TDOL index of the XML tree corresponding to each GNI index.
             curQuery:
@@ -76,7 +78,7 @@ class AttentionSpotlight(ModuleBase):
                     Shape: sampleCount X queryVecLen
                 Data: Vectors representing the query.
         Output:
-            curSli2Gni
+            curSli2Gndtol
                 Shape: len(curSLI)
                 Data: GNI index at each current spotlight index position.
             attnReadyInfoCollapsedByTdol
@@ -87,172 +89,142 @@ class AttentionSpotlight(ModuleBase):
                 Data: Vectors representing the query.
 
         """
-        sliDimension = 1 if beamMode else 0
-        # As an optimization, we don't look at members already seen.
-        alreadySeenGni = set(prevSli2Gni.tolist())
-
-        prevSli2Tdol = gni2Tdol[prevSli2Gni]
+        prevSli2Tdol = gndtol2Tdol[prevSli2Gndtol]
         attentionFactorsByPrevSLI = self.computeAttentionFactors(
-            attnReadyVecsByGni[prevSli2Gni],
+            attnReadyVecsByGndtol[prevSli2Gndtol],
             curQueryVec,
             prevSli2Tdol,
             beamMode=beamMode,
         )
 
-        maxAttentionFactorByTDOL, _ = self.accumulatFactorsByTree(
-            prevSli2Gni,
-            attentionFactorsByPrevSLI,
-            gni2Tdol,
-            treeCount,
-            torch.max,
-            beamMode=beamMode,
-        )
+        sliDimension = 1 if beamMode else 0
 
-        def cullSmallFactors(discoveredGni, attentionFactors, maxAttentionFactorByTDOL):
-            """
-                Inputs
-                    discoveredGni:
-                        Shape: sliCount
-                    attentionFactors:
-                        if beamMode:
-                            Shape: beamCount X sliCount
-                        else:
-                            Shape: sliCount
-                    maxAttentionFactorByTDOL
-                        if beamMode:
-                            Shape: treeCount X beamCount
-                        else:
-                            Shape: treeCount
-                Outputs:
-            """
-            # Get TDOL of each SLI.
-            #   Shape: sliCount
-            #   Value: tree index of the SLI.
-            discoveredGni2Tdol = gni2Tdol[discoveredGni]
-
-            # Indexing below
-            # (treeCount X beamCount) Indexing SliCount-Value-TDOL
-            # Shape: sliCount X beamCount
-            maxAttentionFactorToUse = maxAttentionFactorByTDOL[discoveredGni2Tdol]
-            
-            if beamMode:
-                # Permute last two dimensions to make it ready for comparison.
-                # Shape: beamCount X sliCount
-                maxAttentionFactorToUse = maxAttentionFactorToUse.permute(1, 0)
-
-            # Purpose of comparison is to cull small(1/1000) factors.
-            maxAttentionFactorToUse /= 1000
-
-            # Compare.
-            # Shape: beamCount X SliCount.
-            retainedIndicesBool = (attentionFactors > maxAttentionFactorToUse)
-
-            if beamMode:
-                # Collapse along beamCount dimension.
-                # Retain if any beam is suggesting retention.
-                retainedIndicesBool = torch.sum(retainedIndicesBool, dim=0)
-
-            retainedIndices = torch.LongTensor([
-                i for i, _ in enumerate(discoveredGni)
-                if retainedIndicesBool[i]
-            ])
-            return retainedIndices
-
-        discoveredNewGniList = [ (prevSli2Gni, attentionFactorsByPrevSLI) ]
-        # Next, figure out next set of members which should be added to the attention set.
-        while True:
-            # Next set of candidate members.
-            discoveredNewGni = set()
-            for curGni in discoveredNewGniList[-1][0]:
-                discoveredNewGni = discoveredNewGni.union(
-                    set(attnReadyPosNbrhoodGraph[int(curGni)]) - alreadySeenGni
-                )
-
-            # End loop if no new candidate found.
-            if not(discoveredNewGni):
-                break
-
-            # For future, mark the candidate members as seen.
-            alreadySeenGni = alreadySeenGni.union(discoveredNewGni)
-
-            discoveredNewGni = torch.LongTensor(list(discoveredNewGni))
-
-            discoveredNewGni2Tdol = gni2Tdol[discoveredNewGni]
-            attentionFactorsForNewGni = self.computeAttentionFactors(
-                attnReadyVecsByGni[discoveredNewGni],
-                curQueryVec,
-                discoveredNewGni2Tdol,
+        if self.checkGraph:
+            maxAttentionFactorByTDOL = self.accumulateMaxByValue.wrapper(
+                attentionFactorsByPrevSLI,
+                gndtol2Tdol[prevSli2Gndtol],
+                treeCount,
                 beamMode=beamMode,
             )
 
-            # Updae maxAttentionFactor for each tree.
-            maxAttentionFactorByTDOL = torch.max(
-                maxAttentionFactorByTDOL,
-                self.accumulatFactorsByTree(
-                    discoveredNewGni,
-                    attentionFactorsForNewGni,
-                    gni2Tdol,
-                    treeCount,
-                    torch.max,
-                    beamMode=beamMode,
-                )[0]
-            )
+            # As an optimization, we don't look at members already seen.
+            alreadySeenSli2Gndtol = prevSli2Gndtol
+            discoveredNewGndtol = prevSli2Gndtol
 
-            # Cull factors which are much smaller than max.
-            retainedIndices = cullSmallFactors(
-                discoveredNewGni,
-                attentionFactorsForNewGni,
-                maxAttentionFactorByTDOL,
-            )
-            discoveredNewGni = discoveredNewGni[retainedIndices]
-            attentionFactorsForNewGni = torch.index_select(
-                attentionFactorsForNewGni,
-                sliDimension,
-                retainedIndices,
-            )
-
-            # End loop if no new candidate found.
-            if not(retainedIndices.shape):
-                break
-
-            # Add new members to nextEPoA.
-            discoveredNewGniList.append((discoveredNewGni, attentionFactorsForNewGni))
-
-        # Need to again cull small factors, as the maxAttentionFactorByTDOL has now
-        # chnaged.
-        curSli2Gni = []
-        attentionFactorsByCurSli = []
-        for discoveredNewGni, attentionFactorsForNewGni in discoveredNewGniList:
-            retainedIndices = cullSmallFactors(
-                discoveredNewGni,
-                attentionFactorsForNewGni,
-                maxAttentionFactorByTDOL,
-            )
-            curSli2Gni.append(discoveredNewGni[retainedIndices])
-            attentionFactorsByCurSli.append(
-                torch.index_select(
-                    attentionFactorsForNewGni,
-                    sliDimension, 
-                    torch.LongTensor(retainedIndices)
+            discoveredNewGndtolList = [ (prevSli2Gndtol, attentionFactorsByPrevSLI) ]
+            # Next, figure out next set of members which should be added to the attention set.
+            while True:
+                # Find next set of candidate members by exploring neighbors.
+                (
+                    alreadySeenSli2Gndtol,
+                    discoveredNewGndtol,
+                ) = self.spotNeighborsExplorer.wrapper(
+                    posNbrhoodGraphByGndtol,
+                    alreadySeenSli2Gndtol,
+                    discoveredNewGndtol,
                 )
-            )
 
-        # Concatenate lists of tensors into a single tensor.
-        curSli2Gni = torch.cat(curSli2Gni)
-        attentionFactorsByCurSli = torch.cat(attentionFactorsByCurSli, dim=sliDimension)
+                # End loop if no new candidate found.
+                if not(discoveredNewGndtol.shape[0]):
+                    break
+
+                discoveredNewGndtol2Tdol = gndtol2Tdol[discoveredNewGndtol]
+                attentionFactorsForNewGndtol = self.computeAttentionFactors(
+                    attnReadyVecsByGndtol[discoveredNewGndtol],
+                    curQueryVec,
+                    discoveredNewGndtol2Tdol,
+                    beamMode=beamMode,
+                )
+
+                # Update maxAttentionFactor for each tree.
+                maxAttentionFactorByTDOL = torch.max(
+                    maxAttentionFactorByTDOL,
+                    self.accumulateMaxByValue.wrapper(
+                        attentionFactorsForNewGndtol,
+                        gndtol2Tdol[discoveredNewGndtol],
+                        treeCount,
+                        beamMode=beamMode,
+                    )
+                )
+
+                # Cull factors which are much smaller than max.
+                retainedIndices = self.cullSmallFactors(
+                    gndtol2Tdol,
+                    beamMode,
+                    discoveredNewGndtol,
+                    attentionFactorsForNewGndtol,
+                    maxAttentionFactorByTDOL,
+                )
+                if retainedIndices is False:
+                    # No index retained.
+                    break
+
+                if retainedIndices is not True:
+                    # Only some indices are retained.
+                    discoveredNewGndtol = discoveredNewGndtol[retainedIndices]
+                    attentionFactorsForNewGndtol = torch.index_select(
+                        attentionFactorsForNewGndtol,
+                        sliDimension,
+                        retainedIndices,
+                    )
+
+                # Add new members to nextEPoA.
+                discoveredNewGndtolList.append((discoveredNewGndtol, attentionFactorsForNewGndtol))
+
+            # Need to again cull small factors, as the maxAttentionFactorByTDOL has now
+            # chnaged.
+            curSli2Gndtol = []
+            attentionFactorsByCurSli = []
+            for discoveredNewGndtol, attentionFactorsForNewGndtol in discoveredNewGndtolList:
+                retainedIndices = self.cullSmallFactors(
+                    gndtol2Tdol,
+                    beamMode,
+                    discoveredNewGndtol,
+                    attentionFactorsForNewGndtol,
+                    maxAttentionFactorByTDOL,
+                )
+                if retainedIndices is False:
+                    # No index retained.
+                    continue
+
+                if retainedIndices is not True:
+                    # Only some indices are retained.
+                    discoveredNewGndtol = discoveredNewGndtol[retainedIndices]
+                    attentionFactorsForNewGndtol = torch.index_select(
+                        attentionFactorsForNewGndtol,
+                        sliDimension,
+                        retainedIndices,
+                    )
+
+                # Insert into new list.
+                curSli2Gndtol.append(discoveredNewGndtol)
+                attentionFactorsByCurSli.append(attentionFactorsForNewGndtol)
+
+            # Concatenate lists of tensors into a single tensor.
+            curSli2Gndtol = torch.cat(curSli2Gndtol)
+            attentionFactorsByCurSli = torch.cat(attentionFactorsByCurSli, dim=sliDimension)
+
+            # Sort all results.
+            curSli2Gndtol, sortingPermutation = torch.sort(curSli2Gndtol)
+            attentionFactorsByCurSli = torch.index_select(
+                attentionFactorsByCurSli,
+                sliDimension,
+                sortingPermutation,
+            )
+        else:
+            curSli2Gndtol = prevSli2Gndtol
+            attentionFactorsByCurSli = attentionFactorsByPrevSLI
 
         # To normalize each factor within a tree, we need to find sum of all factors, by TDOL.
-        sumAttentionFactorByTDOL = self.accumulatFactorsByTree(
-            curSli2Gni,
+        sumAttentionFactorByTDOL = self.accumulateSumByValue.wrapper(
             attentionFactorsByCurSli,
-            gni2Tdol,
+            gndtol2Tdol[curSli2Gndtol],
             treeCount,
-            torch.sum,
             beamMode=beamMode,
         )
 
         # Normalize attention factors.
-        curSli2Tdol = gni2Tdol[curSli2Gni]
+        curSli2Tdol = gndtol2Tdol[curSli2Gndtol]
         attentionFactorsDivisor = sumAttentionFactorByTDOL[curSli2Tdol]
         if beamMode:
             # In beam mode:
@@ -271,7 +243,7 @@ class AttentionSpotlight(ModuleBase):
         )
 
         # Get vecs by SLI.
-        attnReadyVecsBySli = attnReadyVecsByGni[curSli2Gni]
+        attnReadyVecsBySli = attnReadyVecsByGndtol[curSli2Gndtol]
         if beamMode:
             # Add a beam dimension to attnReadyVecsBySli.
             attnReadyVecsBySli = attnReadyVecsBySli.view([1] + list(attnReadyVecsBySli.shape))
@@ -284,12 +256,10 @@ class AttentionSpotlight(ModuleBase):
         )
 
         # Accumulate along SLI dimension.
-        attnReadyInfoCollapsedByTdol = self.accumulatFactorsByTree(
-            curSli2Gni,
+        attnReadyInfoCollapsedByTdol = self.accumulateSumByValue.wrapper(
             normalizedAttentionFactorsByCurSli,
-            gni2Tdol,
+            gndtol2Tdol[curSli2Gndtol],
             treeCount,
-            torch.sum,
             beamMode=beamMode,
         )
 
@@ -297,8 +267,9 @@ class AttentionSpotlight(ModuleBase):
             # Switch dims to make shape beamCount X tdolCount.
             attnReadyInfoCollapsedByTdol = attnReadyInfoCollapsedByTdol.permute([1, 0, -1])
 
-        return curSli2Gni, attnReadyInfoCollapsedByTdol
+        return curSli2Gndtol, attnReadyInfoCollapsedByTdol
 
+    @methodProfiler
     def computeAttentionFactors(self,
             attnReadyVecs,
             curQueryVec,
@@ -341,85 +312,68 @@ class AttentionSpotlight(ModuleBase):
         expAttnFactors = torch.exp(preExpAttnFactors)
         expAttnFactors = expAttnFactors.view(beamCount, -1) if beamMode else expAttnFactors.view(-1)
 
-
         return expAttnFactors
 
     @staticmethod
-    def accumulatFactorsByTree(
-            gniIndices,
-            factorsForGniIndices,
-            gni2Tdol,
-            treeCount,
-            accumulate,
-            beamMode,
+    def cullSmallFactors(
+        gndtol2Tdol,
+        beamMode,
+        discoveredGndtol,
+        attentionFactors,
+        maxAttentionFactorByTDOL
     ):
         """
-            Inputs:
-                gniIndices:
+            Inputs
+                discoveredGndtol:
                     Shape: sliCount
-                    Data: GNI index being used.
-                factorsForGniIndices:
-                    In beamMode:
+                attentionFactors:
+                    if beamMode:
                         Shape: beamCount X sliCount
-                        Data: Factors
-                    Else:
+                    else:
                         Shape: sliCount
-                        Data: Factors
-                gni2Tdol:
-                    Shape: gniliCount
-                    Data: TDOL index at each GNI position.
-                treeCount: Number of trees.
-                accumulate: Function to use for accumulation.
-            Output:
-                In beamMode:
-                    Shape: tdolCount X beamCount
-                    Data: Accumulated factors.
-                Else:
-                    Shape: tdolCount 
-                    Data: Accumulated factors.
+                maxAttentionFactorByTDOL
+                    if beamMode:
+                        Shape: treeCount X beamCount
+                    else:
+                        Shape: treeCount
+            Outputs:
         """
+        # Get TDOL of each SLI.
+        #   Shape: sliCount
+        #   Value: tree index of the SLI.
+        discoveredGndtol2Tdol = gndtol2Tdol[discoveredGndtol]
+
+        # Indexing below
+        # (treeCount X beamCount) Indexing SliCount-Value-TDOL
+        # Shape: sliCount X beamCount
+        maxAttentionFactorToUse = maxAttentionFactorByTDOL[discoveredGndtol2Tdol]
+        
         if beamMode:
-            beamCount, sliCount = factorsForGniIndices.shape[0:2]
-            remainingDims = list(factorsForGniIndices.shape[2:])
-        else:
-            sliCount = factorsForGniIndices.shape[0]
-            remainingDims = list(factorsForGniIndices.shape[1:])
-        device = factorsForGniIndices.device
-        # Compute maximum scale factors within the same tree.
-        gniIndicesList = list(range(len(gniIndices)))
-        tdolIndicesTensor = gni2Tdol[gniIndices]
-        gniIndices2OneHotTdol = torch.LongTensor(
-            [
-                tdolIndicesTensor.tolist(),
-                gniIndicesList,
-            ],
-            device=device
-        )
+            # Permute last two dimensions to make it ready for comparison.
+            # Shape: beamCount X sliCount
+            maxAttentionFactorToUse = maxAttentionFactorToUse.permute(1, 0)
+
+        # Purpose of comparison is to cull small(1/1000) factors.
+        maxAttentionFactorToUse /= 1000
+
+        # Compare.
+        # Shape: beamCount X SliCount.
+        retainedIndicesBool = (attentionFactors > maxAttentionFactorToUse)
+
         if beamMode:
-            # factorsForGniIndices permuted as sliCount X beamCount X remainingDims
-            dimPerm = [1, 0] + [k+2 for k in range(len(remainingDims))]
-            factorsForGniIndices = factorsForGniIndices.permute(dimPerm)
+            # Collapse along beamCount dimension.
+            # Retain if any beam is suggesting retention.
+            retainedIndicesBool = (torch.sum(retainedIndicesBool, dim=0) != 0)
 
-            # sparseFactorsForGniIndicesIntoTdol created as
-            # tdolCount X sliCount X beamCount X remainingDims
-            sparseFactorsForGniIndicesIntoTdol = torch.sparse.FloatTensor(
-                gniIndices2OneHotTdol,
-                factorsForGniIndices,
-                torch.Size([treeCount, sliCount, beamCount] + remainingDims)
-            )
-        else:
-            # sparseFactorsForGniIndicesIntoTdol created as
-            # tdolCount X sliCount X remainingDims
-            sparseFactorsForGniIndicesIntoTdol = torch.sparse.FloatTensor(
-                gniIndices2OneHotTdol,
-                factorsForGniIndices,
-                torch.Size([treeCount, sliCount] + remainingDims)
-            )
+        retainedCount = torch.sum(retainedIndicesBool)
+        if retainedCount == 0:
+            return False
+        elif retainedCount == len(retainedIndicesBool):
+            return True
 
-        try:
-            retval = accumulate(sparseFactorsForGniIndicesIntoTdol, dim=1)
-        except RuntimeError:
-            retval = accumulate(sparseFactorsForGniIndicesIntoTdol.to_dense(), dim=1)
-
-        return retval
+        retainedIndices = torch.LongTensor([
+            i for i, _ in enumerate(discoveredGndtol)
+            if retainedIndicesBool[i]
+        ])
+        return retainedIndices
 

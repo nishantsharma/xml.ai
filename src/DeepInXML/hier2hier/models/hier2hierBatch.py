@@ -5,6 +5,7 @@
     Hier2hierBatch implements all those permutations and mappings during batch
     pre-processing.
 """
+import copy
 from cached_property import cached_property
 from attrdict import AttrDict
 import torch
@@ -38,6 +39,9 @@ class Hier2hierBatch(object):
                     DTtL: By decreasing text length.
                 For Tail:
                     DTlL: By decreasing tail length.
+                For Graph nodes:
+                    GNI: Graph nodes in default order.(NDFO + AVDL + DTtL + DTlL)
+                    GNDTOL: Graph nodes in TDOL order of their trees.
         """
         self.torchBatch = torchBatch
 
@@ -193,7 +197,7 @@ class Hier2hierBatch(object):
         if attrValues:
             return rnn.pack_sequence(attrValues)
         else:
-            return None
+            return torch.LongTensor(0, len(attrValuesVocab))
 
     @cached_property
     def node2AvdlList(self):
@@ -344,13 +348,16 @@ class Hier2hierBatch(object):
 
             # Get packed text.
             if self.ndtl2Node2[isTail]:
-                retval[i] = [ getText(node) for node in self.ndtl2Node2[isTail] ]
-                retval[i] = [ text for text in retval[i] if text is not None ]
-                retval[i] = [
+                result = [ getText(node) for node in self.ndtl2Node2[isTail] ]
+                result = [
                     torch.LongTensor([textVocab.stoi[ch] for ch in text])
-                    for text in retval[i]
+                    for text in result
+                    if text is not None
                 ]
-                retval[i] = rnn.pack_sequence(retval[i])
+                if result:
+                    retval[i] = rnn.pack_sequence(result)
+                else:
+                    retval[i] = None
         return retval
 
     @cached_property
@@ -424,29 +431,41 @@ class Hier2hierBatch(object):
         return self.targetOutputLengthsByToi[self.tdol2Toi]
 
     @cached_property
-    def graphIndexOffsets(self):
-        return AttrDict({
-            "ndfo": 0,
-            "avdl": len(self.ndfo2Toi),
-            "ndttp": len(self.ndfo2Toi) + len(self.avdl2Toi),
-            "ndtlp": len(self.ndfo2Toi) + len(self.avdl2Toi) + len(self.ndtlp2Toi2[0]),
-            "end": len(self.ndfo2Toi) + len(self.avdl2Toi) + len(self.ndtlp2Toi2[0]) + len(self.ndtlp2Toi2[1]),
-        })
+    def ndfo2Gni(self):
+        return list(range(len(self.ndfo2Toi)))
+
+    @cached_property
+    def avdl2Gni(self):
+        start=len(self.ndfo2Toi)
+        end = start + len(self.avdl2Toi)
+        return list(range(start, end))
+
+    @cached_property
+    def ndttp2Gni(self):
+        start=len(self.ndfo2Toi) + len(self.avdl2Toi)
+        end = start + len(self.ndtlp2Toi2[0])
+        return list(range(start, end))
+
+    @cached_property
+    def ndtlp2Gni(self):
+        start=len(self.ndfo2Toi) + len(self.avdl2Toi) + len(self.ndtlp2Toi2[0])
+        end = start + len(self.ndtlp2Toi2[1])
+        return list(range(start, end))
 
     @cached_property
     def gni2Toi(self):
-        retval = [ None for _ in range(self.graphIndexOffsets.end) ]
+        retval = [ None for _ in range(self.graphNodeCount) ]
         # ndfo2Toi, avdl2Toi, avdlp2Toi, ndtlp2Toi2[0], ndtlp2Toi2[1].
         for ndfo, toi in enumerate(self.ndfo2Toi):
-            retval[self.graphIndexOffsets.ndfo + ndfo] = toi
+            retval[self.ndfo2Gni[ndfo]] = toi
 
         for avdl, toi in enumerate(self.avdl2Toi):
-            retval[self.graphIndexOffsets.avdl + avdl] = toi
+            retval[self.avdl2Gni[avdl]] = toi
 
         for isTail in [False, True]:
-            offset = self.graphIndexOffsets.ndtlp if isTail else self.graphIndexOffsets.ndttp
-            for ndtlp, toi in enumerate(self.ndtlp2Toi2[isTail]):
-                retval[offset + ndtlp] = toi
+            ndtxp2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
+            for ndtxp, toi in enumerate(self.ndtlp2Toi2[isTail]):
+                retval[ndtxp2Gni[ndtxp]] = toi
 
         return retval
 
@@ -455,7 +474,14 @@ class Hier2hierBatch(object):
         return torch.LongTensor([ self.toi2Tdol[toi] for toi in self.gni2Toi ])
 
     @cached_property
-    def attnReadyPosNbrhoodGraph(self):
+    def graphNodeCount(self):
+        return (
+            len(self.node2Ndfo) + len(self.avdl2Ndac) +
+            len(self.ndtlp2Ndtl2[0]) + len(self.ndtlp2Ndtl2[1])
+        )
+
+    @cached_property
+    def posNbrhoodGraphByGni(self):
         """
         Build neighborhoods for:
         1) tagByNdfo
@@ -469,11 +495,7 @@ class Hier2hierBatch(object):
         # 1) All XML nodes.
         # 2) All XML attributes.
         # 3) All text positions inside node.text and node.tail.
-        graphNodeCount = (
-            len(self.node2Ndfo) + len(self.avdl2Ndac) +
-            len(self.ndtlp2Ndtl2[0]) + len(self.ndtlp2Ndtl2[1])
-        )
-        nbrHoodGraph = [ [] for _ in range(graphNodeCount)]
+        nbrHoodGraph = [ [] for _ in range(self.graphNodeCount)]
 
         # Create node-to-node links first.
         for ndfo, node in enumerate(self.ndfo2Node):
@@ -485,7 +507,7 @@ class Hier2hierBatch(object):
         # Next create node-to-attr links.
         for ndfo, node in enumerate(self.ndfo2Node):
             for attrAvdlIndex in self.node2AvdlList[node]:
-                attrAvdlIndexInGraph = self.graphIndexOffsets.avdl + attrAvdlIndex
+                attrAvdlIndexInGraph = self.avdl2Gni[attrAvdlIndex]
                 nbrHoodGraph[ndfo].append(attrAvdlIndexInGraph)
                 nbrHoodGraph[attrAvdlIndexInGraph].append(ndfo)
         
@@ -494,12 +516,10 @@ class Hier2hierBatch(object):
             i = int(isTail)
             lastNdtlp = {}
             for ndtlp, ndtl in enumerate(self.ndtlp2Ndtl2[i]):
-                if isTail:
-                    indexInGaphOffset = self.graphIndexOffsets.ndtlp
-                else:
-                    indexInGaphOffset = self.graphIndexOffsets.ndttp
-                ndfoIndexInGraph = self.ndtl2Ndfo2[i][ndtl]
-                ndtlpIndexInGraph = ndtlp + indexInGaphOffset
+                ndtxp2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
+                ndtx2Ndfo = self.ndtl2Ndfo2[i]
+                ndfoIndexInGraph = self.ndfo2Gni[ndtx2Ndfo[ndtl]]
+                ndtlpIndexInGraph = ndtxp2Gni[ndtlp]
 
                 # Create graph link.
                 nbrHoodGraph[ndfoIndexInGraph].append(ndtlpIndexInGraph)
@@ -530,11 +550,54 @@ class Hier2hierBatch(object):
 
         return nbrHoodGraph
 
+    @cached_property
+    def gndtol2Gni(self):
+        """
+        Mapping of GNTDOL indices to GNI indices.
+        """
+        retval = list(range(self.graphNodeCount))
+        return sorted(retval, key=lambda gni:self.gni2Tdol[gni])
+
+    @cached_property
+    def gndtol2Tdol(self):
+        return self.gni2Tdol[self.gndtol2Gni]
+
+    @cached_property
+    def gni2Gndtol(self):
+        """
+        Mapping of GNI indices to GNTDOL indices.
+        """
+        return invertPermutation(self.gndtol2Gni)
+
+    @cached_property
+    def posNbrhoodGraphByGndtol(self):
+        """
+        Mapping of GNTDOL indices to GNI indices.
+        """
+        adjListTensor = [
+            torch.LongTensor([
+                self.gni2Gndtol[nbrGni]
+                for nbrGni in self.posNbrhoodGraphByGni[self.gndtol2Gni[gndtol]]
+            ])
+            for gndtol in range(self.graphNodeCount)
+        ]
+        adjLengthsTensor = torch.LongTensor([len(adjList) for adjList in adjListTensor])
+
+        adjListTensor = rnn.pad_sequence(adjListTensor, batch_first=True)
+
+        return (adjListTensor, adjLengthsTensor)
+
+    @cached_property
+    def fullSpotlight(self):
+        return torch.LongTensor(list(range(self.graphNodeCount)))
+
     @staticmethod
     def __packed2ObjIndices(decreasingObjLengths):
         # Build linear2PackedIndex.
         packedIndex = 0
         objCount = len(decreasingObjLengths)
+        if not objCount:
+            return []
         packedLength = sum(decreasingObjLengths)
         maxObjLength = decreasingObjLengths[0]
         # linear2PackedIndex = [
@@ -583,10 +646,8 @@ class Hier2hierBatch(object):
             node, isTail = arg
             ndfoIndex = self.node2Ndfo[node]
             ndtlIndex = self.ndfo2Ndtl2[isTail][ndfoIndex]
-            if isTail:
-                graphIndex = ndtlIndex + self.graphIndexOffsets.ndtlp
-            else:
-                graphIndex = ndtlIndex + self.graphIndexOffsets.ndttp
+            ndtx2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
+            graphIndex = ndtx2Gni[ndtlIndex]
             return graphIndex
 
         retval = []

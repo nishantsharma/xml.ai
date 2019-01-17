@@ -23,6 +23,7 @@ class AppMode(Enum):
     Generate=0
     Train=1
     Evaluate=2
+    Test=3
 
 # Overridden by domain specific defaults.
 modelArgsGlobalDefaults = {
@@ -66,7 +67,8 @@ def loadConfig(mode):
                             help='The app domain to use.')
         parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
                             help='Path to folder containing dev, train and test input data folders.')
-        parser.add_argument('--training_dir', action='store', dest='training_dir', default='./data/training/',
+        parser.add_argument('--training_dir', action='store', dest='training_dir',
+                            default='./data/training/' if mode!=AppMode.Test else "./data/testing/",
                             help='Path to experiment directory.')
         parser.add_argument("--run", action='store', dest='run', default = None, type = int,
                             help="Index of the run that should be operated upon.")
@@ -90,6 +92,11 @@ def loadConfig(mode):
 
     # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
     parser = basic_arguments_parser(True)
+
+    # Testing multiple times.
+    if mode == AppMode.Test:
+        parser.add_argument("--repetitionCount", type = int, default = 3,
+                            help="Number of times to repeat test.")
 
     # Domain customizable load/store settings.
     parser.add_argument("--checkpoint_every", type = int, default = 100,
@@ -237,7 +244,7 @@ def postProcessAppConfig(appConfig, mode):
     allRunsFolder = 'runFolders/'
 
     # By default, we are willing to create in training mode. OW, not.
-    if mode == AppMode.Train:
+    if mode in [AppMode.Train, AppMode.Test]:
         appConfig.create = True
     else:
         appConfig.create = False

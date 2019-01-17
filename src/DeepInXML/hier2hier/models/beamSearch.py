@@ -2,6 +2,7 @@ import torch
 from hier2hier.util import (onehotencode, blockProfiler, methodProfiler, lastCallProfile,
                             batched_index_select)
 
+@methodProfiler
 def BeamSearch(
         symbolGeneratorModel,
         modelStartState,

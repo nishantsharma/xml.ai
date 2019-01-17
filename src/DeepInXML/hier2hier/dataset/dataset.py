@@ -4,26 +4,44 @@ import torch, torchtext
 from torchtext.vocab import Vocab
 
 import xml.etree.ElementTree as ET
+from .randomXml import generateXml
 
 class Hier2HierExample(torchtext.data.Example):
     def __init__(self, inXml, outStr):
         self.src = inXml
         self.tgt = outStr
 
+class GeneratedXmlDataset(torchtext.data.Dataset):
+    @staticmethod
+    def defaultOutputTransform(tree):
+        allNodes = list(tree.getroot().iter())
+        return ET.tostring(allNodes[int(len(allNodes)/2)])
+
+    def __init__(self, sampleCount, generatorArgs, fields=None, outputTransform=None):
+        if outputTransform is None:
+            outputTransform = self.defaultOutputTransform
+
+        examples = []
+        for n in range(sampleCount):
+            inXml = generateXml(generatorArgs)
+            outStr = outputTransform(inXml)
+            examples.append(Hier2HierExample(inXml, outStr))
+
+        super().__init__(examples, fields=fields)
+        
+
 class Hier2HierDataset(torchtext.data.Dataset):
     def __init__(self, baseFolder='train/folder_1/', fields=None, loader=None, transform=None, selectPercent=None):
-        self.baseFolder = baseFolder
-
         # Build input file pairs.
         self.filePairs = []
-        inputFiles = list(glob.glob(self.baseFolder + "dataIn_*.xml"))
+        inputFiles = list(glob.glob(baseFolder + "dataIn_*.xml"))
         inputFiles.sort()
         if selectPercent is not None:
             inputFiles = inputFiles[0:int(0.01 * selectPercent * len(inputFiles))]
         
         for inputFileName in inputFiles:
-            index = int(inputFileName[len(self.baseFolder + "dataIn_"):-4])
-            outputFileName = self.baseFolder + "dataOut_" + str(index) + ".xml"
+            index = int(inputFileName[len(baseFolder + "dataIn_"):-4])
+            outputFileName = baseFolder + "dataOut_" + str(index) + ".xml"
             if not os.path.exists(outputFileName):
                 continue
             self.filePairs.append((inputFileName, outputFileName))

@@ -3,7 +3,8 @@ from attrdict import AttrDict
 
 import torch
 
-from .profiler import lastCallProfile, appendProfilingData, methodProfiler, blockProfiler
+from .profiler import (lastCallProfile, appendProfilingData, methodProfiler,
+                        blockProfiler, summarizeLabelNodes, appendProfilingLabel)
 from .tensorboard import TensorBoardHook
 
 nullTensorBoardHook = TensorBoardHook(0)

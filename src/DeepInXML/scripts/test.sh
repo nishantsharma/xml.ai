@@ -1,12 +1,14 @@
-#! /bin/sh
+#!/bin/sh
+export PYTHONPATH=$(pwd)/
 
 TRAIN_PATH=data/toy_reverse/train/data.txt
 DEV_PATH=data/toy_reverse/dev/data.txt
 
 # Start training
-python scripts/integration_test.py --train_path $TRAIN_PATH --dev_path $DEV_PATH
+python -m pdb -c continue ./apps/test.py
+
 # Resume training
-python scripts/integration_test.py --train_path $TRAIN_PATH --dev_path $DEV_PATH --resume
+#python ./apps/test.py --train_path $TRAIN_PATH --dev_path $DEV_PATH --resume
+
 # Load checkpoint
-python scripts/integration_test.py --train_path $TRAIN_PATH --dev_path $DEV_PATH \
-	--load_checkpoint $(ls -t experiment/checkpoints/ | head -1)
+#python ./apps/test.py --train_path $TRAIN_PATH --dev_path $DEV_PATH --load_checkpoint $(ls -t experiment/checkpoints/ | head -1)

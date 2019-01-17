@@ -26,6 +26,14 @@ def appendProfilingData(key, metadata):
     """
     profilingData[-1].setdefault("Metadata", {})[key] = metadata
 
+def appendProfilingLabel(labelExt):
+    """
+    Metadata is sent to frontend for debugging. If part of the application wants to
+    send some data for debugging, it can call this function with string key and json
+    metadata and the data will be sent to frontend.
+    """
+    profilingData[-1]["Label"] += labelExt
+
 def methodProfiler(method):
     """
     Decorator to profile each call of a method.
@@ -43,6 +51,95 @@ def methodProfiler(method):
             result = method(*args, **kw)
         return result
     return wrapper
+
+def getAllLabelNodes(profileData, label):
+    if isinstance(profileData, list):
+        return sum(
+            [
+                getAllLabelNodes(profileItem, label)
+                for profileItem in profileData
+            ],
+            []
+        )
+    retval = []
+    if profileData:
+        if profileData["Label"] == label:
+            retval.append(profileData)
+
+        if "BreakUp" in proileData:
+            retval = sum(
+                [
+                    getAllLabelNodes(breakUpNode, label)
+                    for breakUpNode in proileData["BreakUp"]
+                ],
+                retval
+           )
+    return retval
+
+def summarizeStats(labelNodes):
+    summaryStats = {}
+    
+    if labelNodes:
+        summaryStats["MilliSeconds"] = 0
+        summaryStats["Gap"] = 0
+        summaryStats["Count"] = len(labelNodes)
+
+        for labelNode in labelNodes:
+            summaryStats["MilliSeconds"] += labelNode["MilliSeconds"]
+            summaryStats["Gap"] += labelNode["MilliSeconds"]
+            if "BreakUp" in labelNode:
+                summaryStats["Gap"] -= sum([
+                    childNode["MilliSeconds"]
+                    for childNode in labelNode["BreakUp"]
+                ])
+
+        summaryStats["AvgMilliSeconds"] = summaryStats["MilliSeconds"] /summaryStats["Count"]
+        summaryStats["AvgGap"] = summaryStats["Gap"] /summaryStats["Count"]
+
+    return summaryStats
+    
+
+def summarizeLabelNodes(labelDesc):
+    if isinstance(labelDesc, dict):
+        # Singleton case.
+        labelNodes = [labelDesc]
+    elif isinstance(labelDesc, str):
+        labelNodes = getAllLabelNodes(lastCallProfile(), label)
+    elif isinstance(labelDesc, list):
+        labelNodes = labelDesc
+    else:
+        raise NotImplemented("Support for {0}".format(labelDesc))
+
+    childNodes = sum(
+        [
+            labelNode["BreakUp"]
+            for labelNode in labelNodes
+            if "BreakUp" in labelNode
+        ],
+        []
+    )
+
+    breakUp = { childNode["Label"]:[] for childNode in childNodes }
+    for childNode in childNodes:
+        breakUp[childNode["Label"]].append(childNode)
+
+    for childNode in breakUp.keys():
+        breakUp[childNode] = summarizeLabelNodes(breakUp[childNode])
+
+    retval = summarizeStats(labelNodes)
+    retval["BreakUp"] = breakUp
+    return retval
+
+
+def summarizeLabel(profileData, label):
+    retval = {}
+
+    labelNodes = getAllLabelNodes(profileData, label)
+    retval[label] = { "Stats": summarizeStats(labelNodes) }
+
+    retval["Children"] = summarizeLabelNodes    
+
+    return retval
 
 class blockProfiler(object):
     """

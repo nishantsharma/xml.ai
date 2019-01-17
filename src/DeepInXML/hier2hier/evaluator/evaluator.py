@@ -84,6 +84,7 @@ class Evaluator(object):
                     beamAccuracy_total += beamAccuracy
 
                 # Evaluation
+                decodedSymbolProbs = decodedSymbolProbs[:, 0:target_variables.shape[1], :]
                 for step, step_output in enumerate(decodedSymbolProbs):
                     loss.eval_batch(step_output, target_variables[step])
                     

@@ -33,6 +33,7 @@ class AttrInfoPropagator(ModuleBase):
         self.layOverAttrInfo.reset_parameters()
         self.extractAttrInfo.load_state_dict(self.layOverAttrInfo.state_dict())
 
+    @methodProfiler
     def forward(self,
         encodedAttrsByAvdl,
         nodeInfoPropagatedByNdac,

@@ -12,6 +12,7 @@ from torch import optim
 import torch.nn.functional as F
 import torch.nn.utils.rnn as rnn
 from .moduleBase import ModuleBase
+from hier2hier.util import blockProfiler, methodProfiler
 
 class EncoderRNN(ModuleBase):
     """
@@ -97,6 +98,7 @@ class EncoderRNN(ModuleBase):
     def output_vec_len(self):
         return self.input_size, self.hidden_size
 
+    @methodProfiler
     def forward(self, input_var, initial_hidden=None, input_lengths=None):
         """
         Applies a multi-layer RNN to an input sequence.

@@ -34,6 +34,7 @@ class Hier2hier(ModuleBase):
             device=None):
         super().__init__(device)
         self.debug = debug
+        self.propagated_info_len = modelArgs.propagated_info_len
 
         #####################################################
         ############### Build sub-components. ###############
@@ -161,6 +162,7 @@ class Hier2hier(ModuleBase):
     def preprocess_batch(self, batch):
         return Hier2hierBatch(batch)
 
+    @methodProfiler
     def propagateThroughHierarchyInit(
         self,
         encodedNodesByNdfo,
@@ -182,6 +184,7 @@ class Hier2hier(ModuleBase):
 
         return propagatedNodeInfoByNdfo
 
+    @methodProfiler
     def propagateThroughAttributes(
         self,
         propagatedNodeInfoByNdfo,
@@ -221,6 +224,7 @@ class Hier2hier(ModuleBase):
                 )
         return propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl, ignoredAttnReadyAttrPositionInfoByAvdlp
 
+    @methodProfiler
     def propagateThroughTextAndTail(
         self,
         propagatedNodeInfoByNdac,
@@ -232,27 +236,34 @@ class Hier2hier(ModuleBase):
     ):
         # Propagate through node.text
         propagatedNodeInfoByNDTtL = propagatedNodeInfoByNdac[ndttl2ndac]
-        attnReadyTextInfoByDTtL, propagatedNodeInfoByNDTtL = self.textInfoPropagator(
-                    encodedTextByDTtL,
-                    propagatedNodeInfoByNDTtL.view(
-                        [1] + list(propagatedNodeInfoByNDTtL.shape)
-                    ),
-                )
+        if encodedTextByDTtL is not None:
+            attnReadyTextInfoByDTtL, propagatedNodeInfoByNDTtL = self.textInfoPropagator(
+                        encodedTextByDTtL,
+                        propagatedNodeInfoByNDTtL.view(
+                            [1] + list(propagatedNodeInfoByNDTtL.shape)
+                        ),
+                    )
+        else:
+            attnReadyTextInfoByDTtL = torch.zeros([0, self.propagated_info_len])
 
         # Propagate through node.tail
         propagatedNodeInfoByNDTlL = propagatedNodeInfoByNDTtL[ndtll2ndttl]
-        attnReadyTextInfoByDTlL, propagatedNodeInfoByNDTlL = self.tailInfoPropagator(
-                    encodedTailByDTlL,
-                    propagatedNodeInfoByNDTlL.view(
-                        [1] + list(propagatedNodeInfoByNDTlL.shape)
-                    ),
-                )
-
+        if encodedTailByDTlL is not None:
+            attnReadyTextInfoByDTlL, propagatedNodeInfoByNDTlL = self.tailInfoPropagator(
+                        encodedTailByDTlL,
+                        propagatedNodeInfoByNDTlL.view(
+                            [1] + list(propagatedNodeInfoByNDTlL.shape)
+                        ),
+                    )
+        else:
+            attnReadyTextInfoByDTlL = torch.zeros([0, self.propagated_info_len])
+    
         # Permute back into NDFO.
         propagatedNodeInfoByNdfo = propagatedNodeInfoByNDTlL[ndfo2ndtll]
 
         return attnReadyTextInfoByDTtL, attnReadyTextInfoByDTlL, propagatedNodeInfoByNdfo
 
+    @methodProfiler
     def propagateThroughHierarchyFinal(
         self,
         propagatedNodeInfoByNdfo,
@@ -273,6 +284,7 @@ class Hier2hier(ModuleBase):
 
         return propagatedNodeInfoByNdfo
 
+    @methodProfiler
     def forward(self,
             hier2hierBatch,
             tensorBoardHook=nullTensorBoardHook,
@@ -335,6 +347,8 @@ class Hier2hier(ModuleBase):
             attnReadyTailInfoByDTlL.data,
         ])
 
+        attnReadyVecsByGndtol = attnReadyVecsByGni[hier2hierBatch.gndtol2Gni]
+
         # Decode attnReadyEncodedPositions to obtain the desired output.
         (
             outputSymbolTensors,
@@ -343,14 +357,16 @@ class Hier2hier(ModuleBase):
             decoderTestTensors,
         ) = self.outputDecoder(
             len(hier2hierBatch.torchBatch.src),
-            hier2hierBatch.attnReadyPosNbrhoodGraph,
-            attnReadyVecsByGni,
+            hier2hierBatch.posNbrhoodGraphByGndtol,
+            hier2hierBatch.fullSpotlight,
+            attnReadyVecsByGndtol,
             hier2hierBatch.targetOutputsByTdol,
             hier2hierBatch.targetOutputLengthsByTdol,
-            hier2hierBatch.gni2Tdol,
+            hier2hierBatch.gndtol2Tdol,
             hier2hierBatch.tdol2Toi,
             tensorBoardHook,
             collectOutput=collectOutput,
-            beam_count=beam_count)
+            beam_count=beam_count,
+            max_output_len=hier2hierBatch.targetOutputLengthsByTdol[0])
 
         return outputSymbolTensors, outputSymbols

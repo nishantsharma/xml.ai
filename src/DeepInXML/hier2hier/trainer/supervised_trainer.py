@@ -14,7 +14,8 @@ from hier2hier.evaluator import Evaluator
 from hier2hier.loss import NLLLoss, Perplexity
 from hier2hier.optim import Optimizer
 from hier2hier.models import Hier2hier
-from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile, computeAccuracy
+from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, computeAccuracy,
+                            summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook
 
@@ -405,7 +406,7 @@ class SupervisedTrainer(object):
             print("Currently at Epoch: %d, Step: %d" % (self.epoch, self.step))
 
             self.model.train(True)
-            calcAccuracy=(self.epoch % 100 == 0)
+            calcAccuracy=False#(self.epoch % 100 == 0)
             for hier2hierBatch in batch_generator:
                 self.step += 1
                 self.epoch = int(self.step / steps_per_epoch)
@@ -419,7 +420,7 @@ class SupervisedTrainer(object):
                     )
                 if self.debug.profile:
                     print("Profiling info:")
-                    print(json.dumps(lastCallProfile(True), indent=2))
+                    print(json.dumps(summarizeLabelNodes(lastCallProfile(True)), indent=2))
 
                 # Record average loss
                 print_loss_total += loss
