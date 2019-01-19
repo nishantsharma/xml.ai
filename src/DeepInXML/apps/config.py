@@ -45,7 +45,7 @@ modelArgsGlobalDefaults = {
     "use_attention": True,
     "teacher_forcing_ratio": 0.50,
     "learning_rate": 0.001,
-    "clip_gradient": False,
+    "clip_gradient": None,
     "disable_batch_norm": None,
     "spotlightThreshold": 0.001,
 }

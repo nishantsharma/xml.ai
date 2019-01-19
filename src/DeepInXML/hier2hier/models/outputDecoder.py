@@ -352,7 +352,6 @@ class OutputDecoder(ModuleBase):
 
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
-                print("Output decoder size:", asizeof.asizeof(self))
                 if curGruOutput.shape[0] != sampleIndexLimit:
                     with blockProfiler("ReShaping"):
                         # Clip loop variables, restricting sample indices to sampleIndexLimit.

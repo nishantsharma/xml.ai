@@ -167,10 +167,39 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
 def attentionSpotlightTest(testNo, appConfig, modelArgs, device):
     attentionSpotlightUnitTest()
     
-def hierarchyPropagatorTest(testNo, appConfig, modelArgs, device):
+def trainingProgressTest(testNo, appConfig, modelArgs, device):
+    # Instantiate trainer object.
+    modelArgs = deepcopy(modelArgs)
+    appConfig = deepcopy(appConfig)
+    modelArgs.spotlightThreshold = -1000000 # Pick everything.
+    modelArgs.disable_batch_norm = True
+    modelArgs.dropout_p = 0
+    modelArgs.input_dropout_p = 0
+    modelArgs.teacher_forcing_ratio = 0.5
+    appConfig.epochs = 100
+    trainer = SupervisedTrainer(appConfig, modelArgs, device)
+
+    # Create test data.
+    generatorArgs = {
+        "node_count_range": (2, 6),
+        "max_child_count": 4,
+        "taglen_range": (2, 5),
+
+        "attr_count_range": (0, 4),
+        "attr_len_range": (2, 5),
+        "attr_value_len_range": (1, 7),
+
+        "text_len_range": (-10, 7),
+        "tail_len_range": (-20, 10),
+    }
+    sampleCount = 5
+    test_data = GeneratedXmlDataset((sampleCount, generatorArgs), fields=trainer.fields)
+
+    # Run tests.
+    trainer.train(test_data)
     raise NotImplementedError()
 
-def singleElementTest(testNo, appConfig, modelArgs, device):
+def hierarchyPropagatorTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
 def encoderPermutationTest(testNo, appConfig, modelArgs, device):
@@ -202,14 +231,17 @@ def main():
 
     # Test the model.
     for testFunc in [
+        # Training should progress for a single dataset.
+        trainingProgressTest,
+
         # Batch data should be generated correctly.
-        #hier2hierBatchTest,
+        hier2hierBatchTest,
 
         # Must not crash on small data. Results must match with direct component calls.
-        #smallDataTest,
+        smallDataTest,
 
         # Attention Spotlight unit test.
-        # attentionSpotlightTest,
+        attentionSpotlightTest,
 
         # Changing other trees or permuting input trees should not change the output of
         # an individual tree.
@@ -217,10 +249,6 @@ def main():
 
         # Propagate hierarchy data.
         hierarchyPropagatorTest,
-
-        # Output for a single tree should match results created without using
-        # batch pre-processing.
-        singleElementTest,
 
         # Permuting the nodes should not change encoding output.
         encoderPermutationTest,
