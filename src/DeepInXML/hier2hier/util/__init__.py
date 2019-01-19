@@ -1,5 +1,6 @@
 import glob, os, argparse, attrdict
 from attrdict import AttrDict
+from enum import IntEnum
 
 import torch
 
@@ -8,6 +9,12 @@ from .profiler import (lastCallProfile, appendProfilingData, methodProfiler,
 from .tensorboard import TensorBoardHook
 
 nullTensorBoardHook = TensorBoardHook(0)
+
+class AppMode(IntEnum):
+    Generate=0
+    Train=1
+    Evaluate=2
+    Test=3
 
 def invertPermutation(perm, asList=None):
     if isinstance(perm, dict):

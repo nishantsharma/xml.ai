@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockProfiler,
                             methodProfiler, lastCallProfile)
 from hier2hier.models.moduleBase import ModuleBase
+from hier2hier.models.hier2hierBatch import splitByToi
 
 class HierarchyPropagator(ModuleBase):
     def __init__(self,
@@ -51,17 +52,36 @@ class HierarchyPropagator(ModuleBase):
 
     @methodProfiler
     def forward(self,
-            nodeInfoPropagatedByDfo,
-            parentsSelectorByDFO,
-            childrenSelectorListByDFO,
+            propagatedNodeInfoByNdfo,
+            parentSelectorByNdfo,
+            childSelectorByNdfoList,
             decreasingFanoutsFactor,
-            tensorBoardHook):
+            tensorBoardHook,
+            debugPack=None,
+    ):
+        if debugPack is not None:
+            (dataStagesToDebug, hier2hierBatch) = debugPack
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount
+            ))
+
         # Apply input dropout. Better to do after resize as input bits are non-uniform.
-        nodeInfoPropagatedByDfo = self.input_dropout(nodeInfoPropagatedByDfo)
+        propagatedNodeInfoByNdfo = self.input_dropout(propagatedNodeInfoByNdfo)
 
         # Apply batch norm.
-        if not self.disable_batch_norm and nodeInfoPropagatedByDfo.shape[0] > 1:
-            nodeInfoPropagatedByDfo = self.batchNormPropagatedInfo(nodeInfoPropagatedByDfo)
+        if not self.disable_batch_norm and propagatedNodeInfoByNdfo.shape[0] > 1:
+            propagatedNodeInfoByNdfo = self.batchNormPropagatedInfo(propagatedNodeInfoByNdfo)
+
+        if debugPack is not None:
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         decreasingFanoutsFactor = decreasingFanoutsFactor.view(
             list(decreasingFanoutsFactor.shape) + [1]
@@ -69,57 +89,57 @@ class HierarchyPropagator(ModuleBase):
         # Run propagation loop.
         for i in range(self.node_info_propagator_stack_depth):
             # Prepare parent info for propagation into new nodeInfoPropagated.
-            parentInfoPropagatedByDfo = nodeInfoPropagatedByDfo[parentsSelectorByDFO, ...]
+            propagatedParentInfoByNdfo = propagatedNodeInfoByNdfo[parentSelectorByNdfo, ...]
 
             # Compute children info to propagate to each node.
-            childrenInfoPropagatedByDfo = torch.tensor([], device=self.device)
-            for childrenSelectorByDFO in childrenSelectorListByDFO:
-                curChildInfoPropagatedByDfo = nodeInfoPropagatedByDfo[childrenSelectorByDFO, ...]
-                if not childrenInfoPropagatedByDfo.shape[0]:
+            propagatedChildrenenInfoByNdfo = torch.tensor([], device=self.device)
+            for childSelectorByNdfo in childSelectorByNdfoList:
+                propagatedCurChildInfoByNdfo = propagatedNodeInfoByNdfo[childSelectorByNdfo, ...]
+                if not propagatedChildrenenInfoByNdfo.shape[0]:
                     # First iteration of the loop.
-                    childrenInfoPropagatedByDfo = curChildInfoPropagatedByDfo
+                    propagatedChildrenenInfoByNdfo = propagatedCurChildInfoByNdfo
                 else:
-                    assert(curChildInfoPropagatedByDfo.shape[0] >= childrenInfoPropagatedByDfo.shape[0])
+                    assert(propagatedCurChildInfoByNdfo.shape[0] >= propagatedChildrenenInfoByNdfo.shape[0])
                     # If the fanout increases in current iteration, pad neighbor infos by the deficit.
-                    if curChildInfoPropagatedByDfo.shape[0] > childrenInfoPropagatedByDfo.shape[0]:
-                        deficit = curChildInfoPropagatedByDfo.shape[0] - childrenInfoPropagatedByDfo.shape[0]
-                        childrenInfoPropagatedByDfo = nn.ZeroPad2d((0, 0, 0, deficit))(childrenInfoPropagatedByDfo)
-                    childrenInfoPropagatedByDfo = childrenInfoPropagatedByDfo + curChildInfoPropagatedByDfo
+                    if propagatedCurChildInfoByNdfo.shape[0] > propagatedChildrenenInfoByNdfo.shape[0]:
+                        deficit = propagatedCurChildInfoByNdfo.shape[0] - propagatedChildrenenInfoByNdfo.shape[0]
+                        propagatedChildrenenInfoByNdfo = nn.ZeroPad2d((0, 0, 0, deficit))(propagatedChildrenenInfoByNdfo)
+                    propagatedChildrenenInfoByNdfo = propagatedChildrenenInfoByNdfo + propagatedCurChildInfoByNdfo
 
             # Propagate the parent information using GRU cell to obtain updated node info.
-            nodeInfoPropagatedByDfo = self.overlayParentInfo(nodeInfoPropagatedByDfo, parentInfoPropagatedByDfo)
+            propagatedNodeInfoByNdfo = self.overlayParentInfo(propagatedNodeInfoByNdfo, propagatedParentInfoByNdfo)
 
-            if childrenInfoPropagatedByDfo.shape[0]:
-                # Normalize childrenInfoPropagatedByDfo by child count.
-                childrenInfoPropagatedByDfo = childrenInfoPropagatedByDfo / decreasingFanoutsFactor
+            if propagatedChildrenenInfoByNdfo.shape[0]:
+                # Normalize propagatedChildrenenInfoByNdfo by child count.
+                propagatedChildrenenInfoByNdfo = propagatedChildrenenInfoByNdfo / decreasingFanoutsFactor
 
             # There may still be some rows that do not have children.
-            deficitStart = childrenInfoPropagatedByDfo.shape[0]
-            finalDeficit = nodeInfoPropagatedByDfo.shape[0] - deficitStart
+            deficitStart = propagatedChildrenenInfoByNdfo.shape[0]
+            finalDeficit = propagatedNodeInfoByNdfo.shape[0] - deficitStart
             
             if finalDeficit:
                 # Keep original info, when no children.                    
-                nodeInfoPropgatedByDfoWhenNoChild = nodeInfoPropagatedByDfo[deficitStart:]
+                nodeInfoPropgatedByDfoWhenNoChild = propagatedNodeInfoByNdfo[deficitStart:]
 
             # Propagate children information using GRU cell to obtain updated node info.
-            nodeInfoPropagatedByDfo = nodeInfoPropagatedByDfo[0:deficitStart]
-            if childrenInfoPropagatedByDfo.shape[0]:
-                nodeInfoPropagatedByDfo = self.overlayChildrenInfo(
-                    nodeInfoPropagatedByDfo,
-                    childrenInfoPropagatedByDfo,
+            propagatedNodeInfoByNdfo = propagatedNodeInfoByNdfo[0:deficitStart]
+            if propagatedChildrenenInfoByNdfo.shape[0]:
+                propagatedNodeInfoByNdfo = self.overlayChildrenInfo(
+                    propagatedNodeInfoByNdfo,
+                    propagatedChildrenenInfoByNdfo,
                 )
 
             if finalDeficit:
-                nodeInfoPropagatedByDfo = torch.cat([
+                propagatedNodeInfoByNdfo = torch.cat([
                     # Propagate children information using GRU cell to obtain updated node info.
-                    nodeInfoPropagatedByDfo,
+                    propagatedNodeInfoByNdfo,
                     nodeInfoPropgatedByDfoWhenNoChild,
                 ])
 
             # Apply GRU output dropout.
-            nodeInfoPropagatedByDfo = self.dropout(nodeInfoPropagatedByDfo)
+            propagatedNodeInfoByNdfo = self.dropout(propagatedNodeInfoByNdfo)
 
-        return nodeInfoPropagatedByDfo
+        return propagatedNodeInfoByNdfo
 
 
 if __name__ == "__main__":

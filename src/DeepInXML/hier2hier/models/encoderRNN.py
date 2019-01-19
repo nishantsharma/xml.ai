@@ -104,9 +104,11 @@ class EncoderRNN(ModuleBase):
         Applies a multi-layer RNN to an input sequence.
 
         Args:
-            input_var (batch, seq_len): tensor containing the features of the input sequence.
-            input_lengths (list of int, optional): A list that contains the lengths of sequences
-            in the mini-batch
+            input_var (batch, seq_len):
+                tensor containing the features of the input sequence.
+            initial_hidden ()
+            input_lengths (list of int, optional):
+                A list that contains the lengths of sequences in the mini-batch
 
         Returns: output, hidden
             - **output** (batch, seq_len, hidden_size): variable containing the encoded features of the input sequence

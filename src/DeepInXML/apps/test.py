@@ -1,61 +1,188 @@
-import os, sys, argparse, logging, json
+import os, sys, argparse, logging, json, random
 from orderedattrdict import AttrDict
+from copy import deepcopy
 
 import torch
 from torch.optim.lr_scheduler import StepLR
 import torchtext
+import torch.nn.utils.rnn as rnn
 
 import xml.etree.ElementTree as ET
 
 import hier2hier
 from hier2hier.trainer import SupervisedTrainer
 from hier2hier.models import Hier2hier
+from hier2hier.models.hier2hierBatch import batchDataUnitTest
 from hier2hier.loss import Perplexity
 from hier2hier.optim import Optimizer
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, GeneratedXmlDataset
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator, GeneratedXmlDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import str2bool
+from hier2hier.models.attentionSpotlight import attentionSpotlightUnitTest
 
 from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder
 
-def smallDataTest(appConfig, trainer):
+def hier2hierBatchTest(testNo, appConfig, modelArgs, device):
+    # Instantiate trainer object.
+    trainer = SupervisedTrainer(deepcopy(appConfig), deepcopy(modelArgs), device)
+
+    # Create test data.
+    generatorArgs = {
+        "node_count_range": (3, 10),
+        "max_child_count": 4,
+        "taglen_range": (0, 5),
+
+        "attr_count_range": (0, 3),
+        "attr_len_range": (0, 5),
+        "attr_value_len_range": (0, 20),
+
+        "text_len_range": (-4, 7),
+        "tail_len_range": (-20, 10),
+    }
+    sampleCount = 5
+    test_data = GeneratedXmlDataset((sampleCount, generatorArgs), fields=trainer.fields)
+
+    # Run tests
+    batchDataUnitTest(trainer, test_data)
+
+def smallDataTest(testNo, appConfig, modelArgs, device):
+    # Instantiate trainer object.
+    trainer = SupervisedTrainer(deepcopy(appConfig), deepcopy(modelArgs), device)
+
+    # Create test data.
     generatorArgs = {
         "node_count_range": (1, 2),
         "max_child_count": 4,
         "taglen_range": (0, 5),
 
-        "attr_count_range": (0, 1),
-        #"attr_len_range": (0, 5),
-        #"attr_value_len_range": (0, 20),
+        "attr_count_range": (0, 3),
+        "attr_len_range": (0, 5),
+        "attr_value_len_range": (0, 20),
 
         "text_len_range": (1, 7),
         "tail_len_range": (-20, 10),
     }
-    for i in range(appConfig.repetitionCount):
-        test_data = GeneratedXmlDataset(1, generatorArgs, fields=trainer.fields)
-        trainer.train(test_data)
+    sampleCount = random.randint(1, 3)
+    test_data = GeneratedXmlDataset((sampleCount, generatorArgs), fields=trainer.fields)
 
+    # Run tests.
+    trainer.train(test_data)
 
-def singleElementTest(appConfig, trainer):
+def noInteractionTest(testNo, appConfig, modelArgs, device):
+    # Instantiate trainer object.
+    modelArgs = deepcopy(modelArgs)
+    appConfig = deepcopy(appConfig)
+    modelArgs.spotlightThreshold = -1000000 # Pick everything.
+    modelArgs.disable_batch_norm = True
+    modelArgs.dropout_p = 0
+    modelArgs.input_dropout_p = 0
+    modelArgs.teacher_forcing_ratio = 0
+    trainer = SupervisedTrainer(appConfig, modelArgs, device)
+
+    # Create test data.
+    generatorArgs = {
+        "node_count_range": (5, 10),
+        "max_child_count": 4,
+        "taglen_range": (2, 5),
+
+        "attr_count_range": (0, 4),
+        "attr_len_range": (2, 5),
+        "attr_value_len_range": (1, 20),
+
+        "text_len_range": (-10, 7),
+        "tail_len_range": (-20, 10),
+    }
+    sampleCount = 50
+    test_data = GeneratedXmlDataset((sampleCount, generatorArgs), fields=trainer.fields)
+    trainer.load(test_data)
+    examples = test_data.examples
+
+    exampleToWatch = examples[0]
+    remainingExamples = examples[1:]
+    resultsToWatch = []
+    prevResult = None
+    prevGraphNodeCount = None
+    for trial in range(20):
+        chosenExamples = random.sample(remainingExamples, 5)
+        watchPosition = random.randint(0, len(chosenExamples))
+        print("Selected watch position ", watchPosition)
+        chosenExamples.insert(watchPosition, exampleToWatch)
+        assert(chosenExamples[watchPosition] == exampleToWatch)
+        test_data_section = GeneratedXmlDataset(chosenExamples, fields=trainer.fields)
+
+        batch_iterator = Hier2HierIterator(
+            preprocess_batch=trainer.model.preprocess_batch,
+            dataset=test_data_section, batch_size=len(test_data_section),
+            sort=False, shuffle=False, sort_within_batch=False,
+            device=device,
+            repeat=False,
+            )
+        batch_generator = batch_iterator.__iter__(unitTesting=True)
+        test_data_batch = list(batch_generator)[0]
+
+        dataDebugStages = trainer.model(test_data_batch, debugDataStages=True, max_output_len=4)
+
+        curGraphNodeCount = len([gni for gni, toi in enumerate(test_data_batch.gni2Toi) if toi==watchPosition])
+        if prevGraphNodeCount is not None:
+            assert(curGraphNodeCount == prevGraphNodeCount)
+        prevGraphNodeCount = curGraphNodeCount
+
+        curResult = [ (stageName, dataDebugStage[watchPosition]) for (stageName, dataDebugStage) in dataDebugStages]
+        outputLenToWatch=test_data_batch.targetOutputLengthsByToi[watchPosition]
+
+        # Remove computation stages which are not relevant for exampleToWatch at watchPosition.
+        _curResult = []
+        lastPrefix = "{0}@".format(outputLenToWatch)
+        for result in curResult:
+            if result[0].startswith(lastPrefix):
+                _curResult.append(curResult[-1])
+                break
+            else:
+                _curResult.append(result)
+        curResult = _curResult
+
+        if prevResult is not None:
+            # assert(len(curResult) == len(prevResult))
+            stageCount = min(len(curResult), len(prevResult))
+            for stage in range(stageCount):
+                if stage < stageCount-1:
+                    assert(curResult[stage][1].shape == prevResult[stage][1].shape)
+                    diff = curResult[stage][1] - prevResult[stage][1]
+                else:
+                    diff = curResult[stage][1][0:outputLenToWatch] - prevResult[stage][1][0:outputLenToWatch]
+                diffNorm = torch.norm(diff)
+                print("Trial {0}. Stage {1}:{2}. Diff {3}".format(
+                    trial,
+                    stage,
+                    (
+                        curResult[stage][0]
+                        if curResult[stage][0] == prevResult[stage][0]
+                        else curResult[stage][0] + "/" + prevResult[stage][0]
+                    ),
+                    diffNorm,))
+                assert(diffNorm < 1e-5)
+        prevResult = curResult
+
+def attentionSpotlightTest(testNo, appConfig, modelArgs, device):
+    attentionSpotlightUnitTest()
+    
+def hierarchyPropagatorTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
-def fiveTreesTest(appConfig, trainer):
+def singleElementTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
-def permutationTest(appConfig, trainer):
+def encoderPermutationTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
-def encoderPermutationTest(appConfig, trainer):
+def batchGraphConsistencyTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
-def batchGraphConsistencyTest(appConfig, trainer):
+def spotlightTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
-def spotlightTest(appConfig, trainer):
-    raise NotImplementedError()
-
-def beamTest(appConfig, trainer):
+def beamTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
 def main():
@@ -73,24 +200,27 @@ def main():
     # Pick the device, preferably GPU where we run our application.
     device = torch.device("cuda") if torch.cuda.is_available() else None
 
-    # Trainer object is requred to
-    trainer = SupervisedTrainer(appConfig, modelArgs, device)
-
     # Test the model.
     for testFunc in [
+        # Batch data should be generated correctly.
+        #hier2hierBatchTest,
+
         # Must not crash on small data. Results must match with direct component calls.
-        smallDataTest,
+        #smallDataTest,
+
+        # Attention Spotlight unit test.
+        # attentionSpotlightTest,
+
+        # Changing other trees or permuting input trees should not change the output of
+        # an individual tree.
+        noInteractionTest,
+
+        # Propagate hierarchy data.
+        hierarchyPropagatorTest,
 
         # Output for a single tree should match results created without using
         # batch pre-processing.
         singleElementTest,
-
-        # Tree position changes should not affect the output of an individual tree.
-        # That should match with singleton call. 
-        fiveTreesTest,
-
-        # Permuting the trees and node-attributes should not change anything.
-        permutationTest,
 
         # Permuting the nodes should not change encoding output.
         encoderPermutationTest,
@@ -106,6 +236,7 @@ def main():
         # Multi-beam results should always be better than single beam.
         beamTest,
     ]:
-        testFunc(appConfig, trainer)
+        for testNo in range(appConfig.repetitionCount):
+            testFunc(testNo, appConfig, modelArgs, device)
 
 main()

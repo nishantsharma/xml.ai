@@ -17,7 +17,7 @@ from hier2hier.models import Hier2hier
 from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, computeAccuracy,
                             summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import TensorBoardHook, nullTensorBoardHook
+from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode
 
 
 class SupervisedTrainer(object):
@@ -62,7 +62,6 @@ class SupervisedTrainer(object):
         self.model = None
         self.optimizer = None
         self.loss = None
-        self.evaluator = None
 
     def load(self, training_data=None):
         # Shortcuts.
@@ -220,9 +219,6 @@ class SupervisedTrainer(object):
         self.epoch = start_epoch
         self.modelArgs = modelArgs
 
-        # Evaluator helps monitor results during training iterations.
-        self.evaluator = Evaluator(loss=loss, batch_size=batch_size)
-
         log.info("Final model arguments: {0}".format(json.dumps(self.modelArgs, indent=2)))
         log.info("Optimizer: %s, Scheduler: %s" % (self.optimizer.optimizer, self.optimizer.scheduler))
 
@@ -318,11 +314,16 @@ class SupervisedTrainer(object):
                             attrValueSymbolSet.add(ch)
                         attrNameSet.add(attrName)
                         maxAttrValueLen = max(maxAttrValueLen, len(attrValue))
-                    for ch in node.text:
-                        textSymbolSet.add(ch)
+                    if node.text is not None:
+                        for ch in node.text:
+                            textSymbolSet.add(ch)
+                        maxNodeTextLen = max(maxNodeTextLen, len(node.text))
+                    if node.tail is not None:
+                        for ch in node.tail:
+                            textSymbolSet.add(ch)
+                        maxNodeTextLen = max(maxNodeTextLen, len(node.tail))
                     maxFanout = max(maxFanout, len(node))
-                    maxNodeTextLen = max(maxNodeTextLen, len(node.text))
-
+    
             # Process output.
             _, outputLengths = getattr(batch, hier2hier.tgt_field_name)
             for outputLength in outputLengths:
@@ -375,7 +376,9 @@ class SupervisedTrainer(object):
             dataset=training_data, batch_size=self.batch_size,
             sort=False, shuffle=True, sort_within_batch=False,
             sort_key=lambda x: len(x.tgt),
-            device=self.device, repeat=False)
+            device=self.device,
+            repeat=False,
+        )
 
         steps_per_epoch = len(batch_iterator)
         if self.step not in range(self.epoch*steps_per_epoch, (self.epoch+1)*steps_per_epoch):
@@ -388,6 +391,10 @@ class SupervisedTrainer(object):
             step=self.step,
             epoch=self.epoch,
             steps_per_epoch=steps_per_epoch)
+
+        # Evaluator helps monitor results during training iterations.
+        if dev_data is not None:
+            evaluator = Evaluator(self.model, self.device, dev_data, loss=self.loss, batch_size=self.batch_size)
 
         first_time = True
         while self.epoch != self.n_epochs:
@@ -442,7 +449,12 @@ class SupervisedTrainer(object):
                     print_loss_total = 0
 
                 # Checkpoint
-                if self.step % self.checkpoint_every == 0 or self.step == total_steps:
+                if ((
+                        self.step % self.checkpoint_every == 0
+                        or self.step == total_steps
+                    )
+                    and self.appConfig.mode != int(AppMode.Test)
+                ):
                     checkpointFolder = "{0}{1}Chk{2:06}.{3:07}".format(
                         self.appConfig.training_dir,
                         self.appConfig.runFolder,
@@ -481,9 +493,7 @@ class SupervisedTrainer(object):
             epoch_beamAccuracy_total = 0
 
             if dev_data is not None:
-                dev_loss, dev_accuracy, dev_beamAccuracy = self.evaluator.evaluate(
-                    self.model, self.device, dev_data, calcAccuracy,
-                )
+                dev_loss, dev_accuracy, dev_beamAccuracy = evaluator.evaluate(calcAccuracy)
 
                 self.optimizer.update(dev_loss, self.epoch)
                 log_msg += ", Dev Loss: %.4f" % (dev_loss)
@@ -507,7 +517,6 @@ class SupervisedTrainer(object):
     @methodProfiler
     def _train_batch(self, hier2hierBatch, calcAccuracy=False):
         with blockProfiler("Input Forward Propagation"):
-            # Forward propagation
             decodedSymbolProbs, decodedSymbols = self.model(
                                     hier2hierBatch,
                                     self.tensorBoardHook,

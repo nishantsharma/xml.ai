@@ -41,6 +41,7 @@ class AttrInfoPropagator(ModuleBase):
         decreasingAttrCountsFactor,
         avdl2Ndac,
     ):
+        inputVecLen = nodeInfoPropagatedByNdac.shape[-1]
         # Create attn ready attr infos, directly from GRU over node state and encoded attrs.
         nodeInfoPropagatedByAvdl = nodeInfoPropagatedByNdac[avdl2Ndac]
         attnReadyAttrInfoByAvdl = self.extractAttrInfo(
@@ -87,13 +88,12 @@ class AttrInfoPropagator(ModuleBase):
             )
 
             if finalDeficit:
-                accumulatedAttrEncodingByNdac = torch.cat([
+                nodeInfoPropagatedByNdac = torch.cat([
                     nodeInfoPropagatedByNdac,
                     nodesWithoutAttrInfoByNdac,
                 ])
-        else:
-            # The case where no node has a child an all are in deficit.
-            accumulatedAttrEncodingByNdac = nodeInfoPropagatedByNdac
 
-        return accumulatedAttrEncodingByNdac, attnReadyAttrInfoByAvdl
+        assert(inputVecLen == nodeInfoPropagatedByNdac.shape[-1])
+
+        return nodeInfoPropagatedByNdac, attnReadyAttrInfoByAvdl
 

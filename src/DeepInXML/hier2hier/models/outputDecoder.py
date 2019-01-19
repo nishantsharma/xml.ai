@@ -12,6 +12,8 @@ from .attentionSpotlight import AttentionSpotlight
 from .beamSearch import BeamSearch
 from hier2hier.util import (onehotencode, checkNans, blockProfiler,
                             methodProfiler, lastCallProfile)
+from hier2hier.models.hier2hierBatch import splitByToi
+from pympler import asizeof
 
 import torch.nn.functional as F
 
@@ -19,16 +21,19 @@ class OutputDecoder(ModuleBase):
     def __init__(self,
             output_vocab,
             propagated_info_len,
+            attentionSubspaceVecLen,
             output_decoder_state_width,
             output_decoder_stack_depth,
             max_output_len,
             sos_id,
             eos_id,
+            spotlightThreshold,
             teacher_forcing_ratio=0,
             input_dropout_p=0,
             dropout_p=0,
             device=None,
-            runtests=False):
+            runtests=False,
+    ):
         super().__init__(device)
         self.propagated_info_len = propagated_info_len
         self.output_decoder_state_width = output_decoder_state_width
@@ -55,8 +60,9 @@ class OutputDecoder(ModuleBase):
 
         # Module for decoding attention and moving spotlight.
         self.attentionSpotlight = AttentionSpotlight(
-            propagated_info_len,
-            output_decoder_state_width)
+            attentionSubspaceVecLen,
+            spotlightThreshold,
+            )
 
         # Network for symbol decoding.
         self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(output_vocab))
@@ -255,17 +261,32 @@ class OutputDecoder(ModuleBase):
             targetOutputLengthsByTdol,
             gndtol2Tdol,
             tdol2Toi,
+            toi2Tdol,
             tensorBoardHook,
             attentionSpotLight=None,
             collectOutput=None,
             beam_count=None,
             max_output_len=None,
+            debugPack=None,
         ):
-        if max_output_len is None:
+        if debugPack is not None:
+            (dataStagesToDebug, hier2hierBatch) = debugPack
+
+        if max_output_len is not None:
             max_output_len=max(self.max_output_len, max_output_len)
+        else:
+            max_output_len=self.max_output_len
 
         # Dropout parts of data for robustness.
         attnReadyVecsByGndtol = self.input_dropout(attnReadyVecsByGndtol)
+
+        if debugPack is not None:
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                attnReadyVecsByGndtol,
+                hier2hierBatch.gndtol2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         if collectOutput is None:
             collectOutput = not(self.training)
@@ -321,25 +342,35 @@ class OutputDecoder(ModuleBase):
             else:
                 outputSymbols = None
 
+        if debugPack is not None:
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                attnReadyVecsByGndtol,
+                hier2hierBatch.gndtol2Toi,
+                hier2hierBatch.sampleCount
+            ))
+
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
+                print("Output decoder size:", asizeof.asizeof(self))
                 if curGruOutput.shape[0] != sampleIndexLimit:
-                    # Clip loop variables, restricting sample indices to sampleIndexLimit.
-                    curSymbolTensor = curSymbolTensor.narrow(0, 0, sampleIndexLimit)
-                    curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
-                    curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
+                    with blockProfiler("ReShaping"):
+                        # Clip loop variables, restricting sample indices to sampleIndexLimit.
+                        curSymbolTensor = curSymbolTensor.narrow(0, 0, sampleIndexLimit)
+                        curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
+                        curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
 
-                    # Shorten sli2gndtol by dropping all trees
-                    # with TDOl index >= sampleIndexLimit.
-                    remainingSliIndices = (gndtol2Tdol[sli2Gndtol] < sampleIndexLimit)
-                    remainingSliIndices = torch.LongTensor([
-                        index
-                        for index, enabled in enumerate(remainingSliIndices.tolist())
-                        if enabled
-                    ])
-                    sli2Gndtol = sli2Gndtol[remainingSliIndices]
-                    if targetOutputsByTdol is not None:
-                        targetOutputsByTdol = targetOutputsByTdol.narrow(0, 0, sampleIndexLimit)
+                        # Shorten sli2gndtol by dropping all trees
+                        # with TDOl index >= sampleIndexLimit.
+                        remainingSliIndices = (gndtol2Tdol[sli2Gndtol] < sampleIndexLimit)
+                        remainingSliIndices = torch.LongTensor([
+                            index
+                            for index, enabled in enumerate(remainingSliIndices.tolist())
+                            if enabled
+                        ])
+                        sli2Gndtol = sli2Gndtol[remainingSliIndices]
+                        if targetOutputsByTdol is not None:
+                            targetOutputsByTdol = targetOutputsByTdol.narrow(0, 0, sampleIndexLimit)
 
                 # Logic for applying
                 if self.training:
@@ -359,6 +390,15 @@ class OutputDecoder(ModuleBase):
                         # We are crossing output index limit. So, this loop is over.
                         break
 
+                    if debugPack is not None:
+                        # Use ndfo2Toi partition.
+                        dataStagesToDebug.append(splitByToi(
+                            curGruOutput,
+                            hier2hierBatch.tdol2Toi,
+                            hier2hierBatch.sampleCount,
+                            prefix="{0}@".format(symbolIndex),
+                        ))
+
                     # Compute next attention.
                     with blockProfiler("ATTENTION-DECODE"):
                         (
@@ -372,7 +412,17 @@ class OutputDecoder(ModuleBase):
                             curGruOutput,
                             sampleIndexLimit,
                             beamMode=False,
+                            debugPack=None,#debugPack,
                         )
+
+                    if debugPack is not None:
+                        # Use ndfo2Toi partition.
+                        dataStagesToDebug.append(splitByToi(
+                            attnReadyInfoCollapsedByTdol,
+                            hier2hierBatch.tdol2Toi,
+                            hier2hierBatch.sampleCount,
+                            prefix="{0}@".format(symbolIndex),
+                        ))
 
                     with blockProfiler("CATVIEW"):
                         curGruInput = torch.cat([attnReadyInfoCollapsedByTdol, curSymbolTensor], -1)
@@ -388,13 +438,24 @@ class OutputDecoder(ModuleBase):
                             ).permute(1, 0, 2)
 
                     with blockProfiler("GRUCELL1"):
-                        curGruStateContiguous = curGruState.contiguous()
+                        curGruState = curGruState.contiguous()
+
+                    if debugPack is not None:
+                        # Use ndfo2Toi partition.
+                        dataStagesToDebug.append(splitByToi(
+                            curGruState,
+                            hier2hierBatch.tdol2Toi,
+                            hier2hierBatch.sampleCount,
+                            prefix="{0}@".format(symbolIndex),
+                        ))
+                        if curGruState.shape[0] == 0:
+                            import pdb;pdb.set_trace()
 
                     # Cycle RNN state.
                     with blockProfiler("GRUCELL2"):
                         tensorBoardHook.add_histogram("OutputDecoderGru.Input", curGruInput)
-                        tensorBoardHook.add_histogram("OutputDecoderGru.State", curGruStateContiguous)
-                        curGruOutput, curGruState = self.gruCell(curGruInput, curGruStateContiguous)
+                        tensorBoardHook.add_histogram("OutputDecoderGru.State", curGruState)
+                        curGruOutput, curGruState = self.gruCell(curGruInput, curGruState)
                         curGruOutput = curGruOutput.view(sampleIndexLimit, self.output_decoder_state_width)
 
                     # Compute next symbol.
@@ -402,6 +463,15 @@ class OutputDecoder(ModuleBase):
                         generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
                         generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.output_vocab))
                         outputSymbolTensors.append(generatedSymbolTensor)
+
+                    if debugPack is not None:
+                        # Use ndfo2Toi partition.
+                        dataStagesToDebug.append(splitByToi(
+                            generatedSymbolTensor,
+                            hier2hierBatch.tdol2Toi,
+                            hier2hierBatch.sampleCount,
+                            prefix="{0}@".format(symbolIndex),
+                        ))
 
                     # Compute next symbol list.
                     if collectOutput:
@@ -461,7 +531,7 @@ class OutputDecoder(ModuleBase):
 
             # During training, we permute the columns
             if self.training:
-                outputSymbolTensors = torch.index_select(outputSymbolTensors, 0, tdol2Toi)
+                outputSymbolTensors = torch.index_select(outputSymbolTensors, 0, toi2Tdol)
 
             if self.runtests:
                 padTensorColumn = torch.cat([padTensor.view(1, 1, -1) for _ in range(sampleCount)])

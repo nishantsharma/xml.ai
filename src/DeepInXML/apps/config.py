@@ -1,6 +1,5 @@
 import os, argparse, logging, glob, random
 from orderedattrdict import AttrDict
-from enum import Enum
 from importlib import import_module
 
 import torch
@@ -17,13 +16,7 @@ from hier2hier.optim import Optimizer
 from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import str2bool, str2bool3, levelDown
-
-class AppMode(Enum):
-    Generate=0
-    Train=1
-    Evaluate=2
-    Test=3
+from hier2hier.util import str2bool, str2bool3, levelDown, AppMode
 
 # Overridden by domain specific defaults.
 modelArgsGlobalDefaults = {
@@ -42,6 +35,7 @@ modelArgsGlobalDefaults = {
     "attrib_value_vec_len": 64,
     "node_info_propagator_stack_depth": 3,
     "propagated_info_len": 256,
+    "attentionSubspaceVecLen": 20,
     "output_decoder_stack_depth": 1,
     "output_decoder_state_width": 200,
 
@@ -53,6 +47,7 @@ modelArgsGlobalDefaults = {
     "learning_rate": 0.001,
     "clip_gradient": False,
     "disable_batch_norm": None,
+    "spotlightThreshold": 0.001,
 }
 
 def loadConfig(mode):
@@ -78,7 +73,7 @@ def loadConfig(mode):
         # Testing data folders.
         if mode == AppMode.Evaluate:
             parser.add_argument('--test_dataset', default="test", type=str,
-                            help='Dataset(test/dev/train) to use for evaluation.')
+                            help='Dataset(test/dev/train) to use for evaluateon.')
 
         return parser
 
@@ -125,7 +120,8 @@ def loadConfig(mode):
                         help="Set to true to enable unit testing of components.")
 
     # Build args needed during training.
-    parser.add_argument("--epochs", type = int, default = 400,
+    parser.add_argument("--epochs", type = int,
+                        default = random.randint(1, 10) if mode == AppMode.Test else 400,
                         help="Number of epochs to train for.")
     parser.add_argument("--batch_size", type = int, default = 1000,
                         help="Batch size for training.")
@@ -177,6 +173,10 @@ def loadConfig(mode):
     parser.add_argument("--output_decoder_state_width", type = int,
                         default = modelArgsDefaults.output_decoder_state_width,
                         help="Width of GRU cell in output decoder.")
+    parser.add_argument("--attentionSubspaceVecLen", type = int,
+                        default = modelArgsDefaults.attentionSubspaceVecLen,
+                        help="Vec length of subspace of attnReadyVecs and decoder hidden state"
+                        + "that is used to comptue attention factors.")
 
     # Other meta-parameters for training the neural network.
     parser.add_argument("--input_dropout_p", type = float,
@@ -200,6 +200,10 @@ def loadConfig(mode):
     parser.add_argument("--disable_batch_norm", type = str2bool,
                         default = modelArgsDefaults.disable_batch_norm,
                         help="Disable batch norm. Needed for running some tests.")
+    parser.add_argument("--spotlightThreshold", type = float,
+                        default = modelArgsDefaults.spotlightThreshold,
+                        help="Threshold used to identify encoder positions to be considered"
+                            + "for evaluation.")                        
 
     if mode == AppMode.Evaluate:
         parser.add_argument("--beam_count", type = int,
@@ -214,11 +218,13 @@ def loadConfig(mode):
 
     # Spin out model arguments from app configuration.
     modelArgs = levelDown(appConfig, "modelArgs", modelArgsDefaults.keys())
-        
+
     # Apply random seed.
     if appConfig.random_seed is not None:
         random.seed(appConfig.random_seed)
         torch.manual_seed(appConfig.random_seed)
+
+    appConfig.mode = int(mode)
 
     return appConfig, modelArgs
 

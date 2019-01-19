@@ -15,7 +15,7 @@ def getId(len_range):
 
 def getText(len_range, vocab=None):
     textLen = random.randrange(*len_range)
-    if textLen <= 0:
+    if textLen < 0:
         return None
 
     if vocab is None:
@@ -41,6 +41,7 @@ def generateXml(generatorArgs):
     root_node = None
     node_count = random.randrange(*node_count_range)
     permissibleParents = []
+
     for i in range(node_count):
         if permissibleParents:
             pickedParent = random.randrange(0, len(permissibleParents))
@@ -68,7 +69,7 @@ def generateXml(generatorArgs):
         node.tail = getText(tail_len_range)
 
         # Mark parent.
-        if parent:
+        if parent is not None:
             parent.append(node)
 
         if root_node is None:

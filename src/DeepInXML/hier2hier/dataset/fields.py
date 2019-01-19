@@ -32,8 +32,12 @@ class SourceField(torchtext.data.RawField):
 
                 # Node text.
                 inputText[SYM_SOS] += 1
-                for textSym in xmlNode.text:
-                    inputText[textSym] += 1
+                if xmlNode.text is not None:
+                    for textSym in xmlNode.text:
+                        inputText[textSym] += 1
+                if xmlNode.tail is not None:
+                    for textSym in xmlNode.tail:
+                        inputText[textSym] += 1
                 inputText[SYM_EOS] += 1
 
                 for attrName, attrValue in xmlNode.attrib.items():

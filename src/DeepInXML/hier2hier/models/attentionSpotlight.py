@@ -1,6 +1,6 @@
 from __future__ import unicode_literals, print_function, division
 import unicodedata
-import string, re, random, sys, copy
+import string, re, random, sys, copy, math
 from orderedattrdict import AttrDict
 
 import torch
@@ -9,6 +9,7 @@ from torch import optim
 import torch.nn.functional as F
 from hier2hier.models.moduleBase import ModuleBase
 from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
+from hier2hier.models.hier2hierBatch import splitByToi
 from hier2hier.models.accumulateByValue import AccumulateByValue, AccumulateSumByValue, AccumulateMaxByValue
 from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
 
@@ -18,7 +19,7 @@ class AttentionSpotlight(ModuleBase):
     Orders
         GNI: Original order of ALL Graph Node Indices.
         SLI: Spot Light Indices. A subset of GNI indices which are under attention.
-        prevSLI: The subset of GNI indices, which were under potlight in the previous
+        prevSLI: The subset of GNI indices, which were under spotlight in the previous
                 iteration.
         TDOL: XML Trees in Decreasing Output Lengths order(Applicable only during training.).
         1 HOT TDOL: Suppose we have a vector sli2tdol containing the TDOL index at each
@@ -29,18 +30,21 @@ class AttentionSpotlight(ModuleBase):
         PrevSLI_x_SOHTDOL, SLI_x_SOHTDOL: SLI X SPARSE 1 HOT TDOL.
     """
     def __init__(self,
-                attnReadyVecLen,
-                queryVecLen,
+                attentionSubspaceVecLen,
+                cullThreshold=None,
                 headCount=1,
                 device=None,
-                checkGraph=True):
+                checkGraph=True,
+    ):
         super().__init__(device)
         self.checkGraph = checkGraph
+        self.attentionSubspaceVecLen = attentionSubspaceVecLen
+        self.cullThreshold = cullThreshold
 
         # Network for attention model between query and attention ready inputs.
         self.attentionCorrelation = nn.Bilinear(
-            attnReadyVecLen,
-            queryVecLen,
+            attentionSubspaceVecLen,
+            attentionSubspaceVecLen,
             headCount,
         )
         self.accumulateSumByValue = AccumulateSumByValue()
@@ -59,6 +63,8 @@ class AttentionSpotlight(ModuleBase):
                 curQueryVec,
                 treeCount,
                 beamMode,
+                cullThreshold=None,
+                debugPack=None,
     ):
         """
         Inputs:
@@ -89,6 +95,12 @@ class AttentionSpotlight(ModuleBase):
                 Data: Vectors representing the query.
 
         """
+        if debugPack is not None:
+            (dataStagesToDebug, hier2hierBatch) = debugPack
+
+        if cullThreshold is None:
+            cullThreshold = self.cullThreshold
+
         prevSli2Tdol = gndtol2Tdol[prevSli2Gndtol]
         attentionFactorsByPrevSLI = self.computeAttentionFactors(
             attnReadyVecsByGndtol[prevSli2Gndtol],
@@ -96,16 +108,34 @@ class AttentionSpotlight(ModuleBase):
             prevSli2Tdol,
             beamMode=beamMode,
         )
+        if debugPack is not None:
+            prevSli2Toi  = [ int(hier2hierBatch.tdol2Toi[tdol]) for tdol in prevSli2Tdol ]
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                attentionFactorsByPrevSLI,
+                prevSli2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         sliDimension = 1 if beamMode else 0
 
         if self.checkGraph:
+            if debugPack is not None and len(dataStagesToDebug) == 18:
+                import pdb;pdb.set_trace()
             maxAttentionFactorByTDOL = self.accumulateMaxByValue.wrapper(
                 attentionFactorsByPrevSLI,
                 gndtol2Tdol[prevSli2Gndtol],
                 treeCount,
                 beamMode=beamMode,
             )
+
+            if debugPack is not None:
+                # Use ndfo2Toi partition.
+                dataStagesToDebug.append(splitByToi(
+                    maxAttentionFactorByTDOL,
+                    hier2hierBatch.tdol2Toi,
+                    hier2hierBatch.sampleCount
+                ))
 
             # As an optimization, we don't look at members already seen.
             alreadySeenSli2Gndtol = prevSli2Gndtol
@@ -154,6 +184,7 @@ class AttentionSpotlight(ModuleBase):
                     discoveredNewGndtol,
                     attentionFactorsForNewGndtol,
                     maxAttentionFactorByTDOL,
+                    cullThreshold,
                 )
                 if retainedIndices is False:
                     # No index retained.
@@ -182,6 +213,7 @@ class AttentionSpotlight(ModuleBase):
                     discoveredNewGndtol,
                     attentionFactorsForNewGndtol,
                     maxAttentionFactorByTDOL,
+                    cullThreshold,
                 )
                 if retainedIndices is False:
                     # No index retained.
@@ -203,6 +235,14 @@ class AttentionSpotlight(ModuleBase):
             # Concatenate lists of tensors into a single tensor.
             curSli2Gndtol = torch.cat(curSli2Gndtol)
             attentionFactorsByCurSli = torch.cat(attentionFactorsByCurSli, dim=sliDimension)
+
+            if debugPack is not None:
+                curSli2Toi  = [ hier2hierBatch.gndtol2Toi[tdol] for tdol in curSli2Gndtol ]
+                dataStagesToDebug.append(splitByToi(
+                    attentionFactorsByCurSli,
+                    curSli2Toi,
+                    hier2hierBatch.sampleCount
+                ))
 
             # Sort all results.
             curSli2Gndtol, sortingPermutation = torch.sort(curSli2Gndtol)
@@ -308,8 +348,12 @@ class AttentionSpotlight(ModuleBase):
             # Reshape curQueryVec as beamCount X sliCount X queryVecLen
             curQueryVec = curQueryVec.permute(1, 0, 2)
 
-        preExpAttnFactors = self.attentionCorrelation(attnReadyVecs.contiguous(), curQueryVec.contiguous())
+        preExpAttnFactors = self.attentionCorrelation(
+            attnReadyVecs[...,0:self.attentionSubspaceVecLen],
+            curQueryVec[...,0:self.attentionSubspaceVecLen],
+        )
         expAttnFactors = torch.exp(preExpAttnFactors)
+        assert(expAttnFactors.shape[-1] == 1)
         expAttnFactors = expAttnFactors.view(beamCount, -1) if beamMode else expAttnFactors.view(-1)
 
         return expAttnFactors
@@ -320,7 +364,8 @@ class AttentionSpotlight(ModuleBase):
         beamMode,
         discoveredGndtol,
         attentionFactors,
-        maxAttentionFactorByTDOL
+        maxAttentionFactorByTDOL,
+        cullThreshold,
     ):
         """
             Inputs
@@ -344,17 +389,19 @@ class AttentionSpotlight(ModuleBase):
         discoveredGndtol2Tdol = gndtol2Tdol[discoveredGndtol]
 
         # Indexing below
-        # (treeCount X beamCount) Indexing SliCount-Value-TDOL
-        # Shape: sliCount X beamCount
+        # if beamMode:
+        #     Shape: sliCount X beamCount
+        # else:
+        #     Shape: sliCount
         maxAttentionFactorToUse = maxAttentionFactorByTDOL[discoveredGndtol2Tdol]
         
         if beamMode:
-            # Permute last two dimensions to make it ready for comparison.
             # Shape: beamCount X sliCount
+            # Permute last two dimensions to make it ready for comparison.
             maxAttentionFactorToUse = maxAttentionFactorToUse.permute(1, 0)
 
         # Purpose of comparison is to cull small(1/1000) factors.
-        maxAttentionFactorToUse /= 1000
+        maxAttentionFactorToUse *= cullThreshold
 
         # Compare.
         # Shape: beamCount X SliCount.
@@ -377,3 +424,94 @@ class AttentionSpotlight(ModuleBase):
         ])
         return retainedIndices
 
+def attentionSpotlightUnitTest():
+    treeIndex2NodeIndex2NbrIndices = [
+            [ # Node count = 9. Linear.
+                [1], #0
+                [2],
+                [3],
+                [4],
+                [5],
+                [6],
+                [7],
+                [8],
+                [],
+            ],
+            [ # Node count = 7. Reverse linear.
+                [],
+                [0],
+                [1],
+                [2],
+                [3],
+                [4],
+                [5],
+            ],
+            [ # Node count = 6. Broken.
+                [1, 2],
+                [0],
+                [0],
+                [5],
+                [5],
+                [3, 4],
+            ],
+            [ # Node count = 5. Star network
+                [1,2,3,4],
+                [0],
+                [0],
+                [0],
+                [0],
+            ],
+    ]
+    treeCount = len(treeIndex2NodeIndex2NbrIndices)
+
+    posNbrhoodGraphByGndtol = []
+    treeOffset = 0
+    attnReadyVecsByGndtol = []
+    gndtol2Tdol = []
+    for treeIndex, nodeIndex2NbrIndices in enumerate(treeIndex2NodeIndex2NbrIndices):
+        for nodeIndex, nbrIndices in enumerate(nodeIndex2NbrIndices):
+            curNbrList = [childIndex+treeOffset for childIndex in nbrIndices]
+            posNbrhoodGraphByGndtol.append(curNbrList)
+            theta = 2*math.pi*nodeIndex/len(nodeIndex2NbrIndices)
+            attnReadyVecsByGndtol.append([math.cos(theta), math.sin(theta)])
+            gndtol2Tdol.append(treeIndex)
+        treeOffset += len(nodeIndex2NbrIndices)
+    gndtol2Tdol = torch.LongTensor(gndtol2Tdol)
+
+    # Convert lists to tensors.
+    lengths = torch.LongTensor([len(n) for n in posNbrhoodGraphByGndtol])
+    posNbrhoodGraphByGndtol = (
+        torch.nn.utils.rnn.pad_sequence(
+            [
+                torch.LongTensor(n)
+                for n in posNbrhoodGraphByGndtol
+            ]
+        ),
+        lengths
+    )
+    attnReadyVecsByGndtol = torch.tensor(attnReadyVecsByGndtol)
+
+    # Build queryVec.
+    queryVec=torch.tensor([[1.0, 0.0] for _ in range(treeCount)])
+
+    prevSli2Gndtol = [0]
+    for tree in treeIndex2NodeIndex2NbrIndices[0:-1]:
+        prevSli2Gndtol.append(prevSli2Gndtol[-1] + len(tree))
+    prevSli2Gndtol = torch.LongTensor(prevSli2Gndtol)
+    
+    # Get results
+    attentionSpotlight = AttentionSpotlight(
+                queryVec.shape[1],
+    )
+
+    # Get results
+    results = attentionSpotlight(
+        posNbrhoodGraphByGndtol,
+        attnReadyVecsByGndtol,
+        prevSli2Gndtol,
+        gndtol2Tdol,
+        queryVec,
+        len(treeIndex2NodeIndex2NbrIndices),
+        False,
+        cullThreshold=0.5,
+    )

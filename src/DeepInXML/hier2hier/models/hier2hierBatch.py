@@ -5,13 +5,29 @@
     Hier2hierBatch implements all those permutations and mappings during batch
     pre-processing.
 """
-import copy
-from cached_property import cached_property
+import copy, inspect
+from os.path import basename
 from attrdict import AttrDict
 import torch
 import torch.nn.utils.rnn as rnn
 
-from hier2hier.util import invertPermutation
+from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile
+from hier2hier.dataset import Hier2HierIterator
+
+class cached_property_profiler(object):
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return self
+        name = self.func.__name__
+        
+        if not name in obj.__dict__:
+            with blockProfiler(name):
+                obj.__dict__[name] = self.func(obj)
+
+        return obj.__dict__[name]
 
 class Hier2hierBatch(object):
     def __init__(self, torchBatch):
@@ -36,16 +52,17 @@ class Hier2hierBatch(object):
                     ADFO: Batch Attributes in DFO order by nodes.
                     AVDL: Batch Attribute Values in decreasing length order.
                 For Text:
-                    DTtL: By decreasing text length.
+                    TtDLP: By decreasing text length.
                 For Tail:
-                    DTlL: By decreasing tail length.
+                    TlDLP: By decreasing tail length.
                 For Graph nodes:
-                    GNI: Graph nodes in default order.(NDFO + AVDL + DTtL + DTlL)
+                    GNI: Graph nodes in default order.(NDFO + AVDL + TtDLP + TlDLP)
                     GNDTOL: Graph nodes in TDOL order of their trees.
         """
+        self.attribs = {}
         self.torchBatch = torchBatch
 
-    @cached_property
+    @cached_property_profiler
     def node2Parent(self):
         # Build node2Parent dictionary.
         retval = { }
@@ -57,7 +74,7 @@ class Hier2hierBatch(object):
                     retval[childNode] = node
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def node2Toi(self):
         # Build node2Toi(original tree index) dictionary.
         retval =  { }
@@ -66,51 +83,55 @@ class Hier2hierBatch(object):
                 retval[node] = toi
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def tdnc2Toi(self):
         # Compute TDNC permutation for trees.
         retval = list(range(len(self.torchBatch.src)))
-        retval.sort(lambda index: -len(self.torchBatch.src[index]))
+        retval.sort(lambda index: (-len(self.torchBatch.src[index]), index))
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def toi2Tdnc(self):
         # Invert TDNC permutation for trees.
         return invertPermutation(self.tdnc2Toi)
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Node(self):
         # Permute nodes into NDFO order.
         retval = sum([ list(xmlTree.iter()) for xmlTree in self.torchBatch.src ], [])
         retval.sort(key=lambda node:-len(node)) # Fanout = len(node)
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def decreasingFanoutsFactorByNdfo(self):
         return torch.tensor([float(len(node)) for node in self.ndfo2Node if len(node)])
 
-    @cached_property
+    @cached_property_profiler
     def node2Ndfo(self):
         # Compute NDFO indices for all nodes.
         return { node:index for index, node in enumerate(self.ndfo2Node) }
 
-    @cached_property
+    @cached_property_profiler
     def encodedNodesByNdfo(self):
         tagVocab = self.torchBatch.dataset.fields["src"].vocabs.tags
         return torch.LongTensor([tagVocab.stoi[node.tag] for node in self.ndfo2Node])
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Toi(self):
         return [self.node2Toi[node] for node in self.ndfo2Node]
 
-    @cached_property
+    @cached_property_profiler
+    def ndac2Toi(self):
+        return [self.ndfo2Toi[ndfo] for ndfo in self.ndac2Ndfo]
+
+    @cached_property_profiler
     def parentSelectorByNdfo(self):
-        return [
+        return torch.LongTensor([
             self.node2Ndfo[self.node2Parent[node]] # NDFO index of the parent.
             for node in self.ndfo2Node # Node at NDFO postion in the selector list.
-        ]
+        ])
 
-    @cached_property
+    @cached_property_profiler
     def childSelectorByNdfoList(self):
         # Build NDFO child node selector lists.
         # The below loop only works because all nodes are in decreasing fanout order.
@@ -121,29 +142,30 @@ class Hier2hierBatch(object):
                 ndfoChildNodeIndex = self.node2Ndfo[childNode]
                 retval[childNumber].append(ndfoChildNodeIndex)
         retval.reverse()
-
+        retval = [torch.LongTensor(item) for item in retval]
         return retval
 
-    @cached_property
-    def attrsByAdfo(self):
-        retval = []
-        for node in self.ndfo2Node:
-            for attribLabel, attribValue in node.attrib.items():
-                retval.append((attribLabel, attribValue))
-        return retval
-
-    @cached_property
+    @cached_property_profiler
     def avdl2Toi(self):
         # AVDL to TOI
-        return [ self.adfo2Toi[adfo] for adfo in self.avdl2Adfo ]
+        return [ self.__adfo2Toi[adfo] for adfo in self.avdl2Adfo ]
 
-    @cached_property
+    @cached_property_profiler
     def avdlp2Toi(self):
         # AVDLP to TOI
         return [ self.avdl2Toi[avdl] for avdl in self.avdlp2Avdl ]
 
-    @cached_property
-    def node2AdfoList(self):
+    @cached_property_profiler
+    def attrsByAdfo(self):
+        retval = []
+        for node in self.ndfo2Node:
+            sortedAttribLabels = sorted(node.attrib.keys())
+            for attribLabel in sortedAttribLabels:
+                retval.append((attribLabel, node.attrib[attribLabel]))
+        return retval
+
+    @cached_property_profiler
+    def __node2AdfoList(self):
         retval = {}
         adfo = 0
         for node in self.ndfo2Node:
@@ -153,28 +175,26 @@ class Hier2hierBatch(object):
                 adfo += 1
         return retval
 
-    @cached_property
-    def adfo2Toi(self):
-        adfo = 0
+    @cached_property_profiler
+    def __adfo2Toi(self):
         retval = []
         for node in self.ndfo2Node:
             for _ in node.attrib:
                 retval.append(self.node2Toi[node])
-                adfo += 1
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def avdl2Adfo(self):
         retval = list(range(len(self.attrsByAdfo)))
-        retval.sort(key=lambda origIndex: -len(self.attrsByAdfo[origIndex][1]))
+        retval.sort(key=lambda adfo: (-len(self.attrsByAdfo[adfo][1]), adfo))
         return retval
 
-    @cached_property
-    def adfo2Avdl(self):
+    @cached_property_profiler
+    def __adfo2Avdl(self):
         return invertPermutation(self.avdl2Adfo)
 
-    @cached_property
+    @cached_property_profiler
     def encodedAttrLabelsByAvdl(self):
         attrsVocab = self.torchBatch.dataset.fields["src"].vocabs.attrs
 
@@ -183,7 +203,7 @@ class Hier2hierBatch(object):
             for adfo in self.avdl2Adfo
         ])
         
-    @cached_property
+    @cached_property_profiler
     def encodedAttrSymbolsByAvdlp(self):
         attrValuesVocab = self.torchBatch.dataset.fields["src"].vocabs.attrValues
         attrValues = [
@@ -192,6 +212,7 @@ class Hier2hierBatch(object):
                 for ch in self.attrsByAdfo[adfo][1]
             ])
             for adfo in self.avdl2Adfo
+            if self.attrsByAdfo[adfo][1]
         ]
 
         if attrValues:
@@ -199,45 +220,45 @@ class Hier2hierBatch(object):
         else:
             return torch.LongTensor(0, len(attrValuesVocab))
 
-    @cached_property
+    @cached_property_profiler
     def node2AvdlList(self):
         return {
-            node:[ self.adfo2Avdl[adfoAttrIndex] for adfoAttrIndex in adfoAttrIndices ]
-            for node, adfoAttrIndices in self.node2AdfoList.items()
+            node:[ self.__adfo2Avdl[adfo] for adfo in adfoAttrIndices ]
+            for node, adfoAttrIndices in self.__node2AdfoList.items()
         }
 
-    @cached_property
+    @cached_property_profiler
     def avdl2Ndfo(self):
         node2AvdlList = self.node2AvdlList
-        attrCount = len(self.adfo2Toi)
+        attrCount = len(self.__adfo2Toi)
         retval = [None for _ in range(attrCount)]
         for node, avdlList in node2AvdlList.items():
             for avdl in avdlList:
                 retval[avdl] = self.node2Ndfo[node]
-        return retval
+        return torch.LongTensor(retval)
 
-    @cached_property
+    @cached_property_profiler
     def avdl2Ndac(self):
-        return [self.ndfo2Ndac[ndfo] for ndfo in self.avdl2Ndfo]
+        return [self.ndfo2Ndac[int(ndfo)] for ndfo in self.avdl2Ndfo]
 
-    @cached_property
+    @cached_property_profiler
     def ndac2Ndfo(self):
         retval = list(range(len(self.ndfo2Node)))
-        retval.sort(key = lambda ndfoIndex:-len(self.ndfo2Node[ndfoIndex]))
+        retval.sort(key = lambda ndfoIndex:(-len(self.ndfo2Node[ndfoIndex].attrib), ndfoIndex))
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Ndac(self):
         return invertPermutation(self.ndac2Ndfo)
 
-    @cached_property
+    @cached_property_profiler
     def ndac2AvdlList(self):
         return [
             self.node2AvdlList[self.ndfo2Node[ndfoIndex]]
             for ndfoIndex in self.ndac2Ndfo
         ]
 
-    @cached_property
+    @cached_property_profiler
     def decreasingAttrCountsFactorByNdac(self):
         return torch.tensor([
             float(len(avdlList))
@@ -245,33 +266,37 @@ class Hier2hierBatch(object):
             if len(avdlList)
         ])
 
-    @cached_property
+    @cached_property_profiler
     def attrValuesByAvdlp(self):
         if self.avdl2Adfo:
             return rnn.pack_sequence([self.attrsByAdfo[adfoIndex][1] for adfoIndex in self.avdl2Adfo])
         else:
             return None
 
-    @cached_property
+    @cached_property_profiler
     def avdlAttrSelectorsListByNdac(self):
         maxAttrCount = len(self.ndfo2Node[self.ndac2Ndfo[0]].attrib)
         retval = [[] for _ in range(maxAttrCount)]
         for avdlIndices in self.ndac2AvdlList:
             for attrNumber, avdlIndex in enumerate(avdlIndices):
                 retval[attrNumber].append(avdlIndex)
+
+        # Reverse, because we want the items to come in increasing order of length.
         retval.reverse()
+        retval = [torch.LongTensor(item) for item in retval]
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def ndac2AttrCounts(self):
         return [len(self.ndfo2Node[ndfo].attrib) for ndfo in self.ndac2Ndfo]
 
-    @cached_property
+    @cached_property_profiler
     def avdlp2Avdl(self):
-        return self.__packed2ObjIndices(self.ndac2AttrCounts)
+        avdl2AttrLength = [len(self.attrsByAdfo[adfoIndex][1]) for adfoIndex in self.avdl2Adfo]
+        return self.packed2ObjIndices(avdl2AttrLength)
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Text2(self):
         retval = [None, None]
 
@@ -281,7 +306,7 @@ class Hier2hierBatch(object):
 
             retval[i] = [getText(node) for node in self.ndfo2Node]
 
-    @cached_property
+    @cached_property_profiler
     def ndtl2Ndfo2(self):
         retval = [None, None]
 
@@ -291,46 +316,42 @@ class Hier2hierBatch(object):
                 return 0 if text is None else len(text)
             # Get NDTL
             retval[i] = list(range(len(self.ndfo2Node)))
-            retval[i].sort(key=lambda ndfoIndex: -getLen(self.ndfo2Node[ndfoIndex]))    
+            retval[i].sort(key=lambda ndfoIndex: (-getLen(self.ndfo2Node[ndfoIndex]), ndfoIndex))
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Ndtl2(self):
         return [
             invertPermutation(self.ndtl2Ndfo2[0]),
             invertPermutation(self.ndtl2Ndfo2[1])
         ]
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Ndttl(self):
         return self.ndfo2Ndtl2[0]
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Ndtll(self):
         return self.ndfo2Ndtl2[1]
 
-    @cached_property
+    @cached_property_profiler
     def ndttl2Ndfo(self):
         return invertPermutation(self.ndfo2Ndttl)
 
-    @cached_property
+    @cached_property_profiler
     def ndttl2Ndac(self):
         return [self.ndfo2Ndac[ndfo] for ndfo in self.ndttl2Ndfo]
 
-    @cached_property
+    @cached_property_profiler
     def ndtll2Ndttl(self):
         return torch.LongTensor([self.ndfo2Ndttl[ndfo] for ndfo in self.ndtll2Ndfo])
 
-    @cached_property
+    @cached_property_profiler
     def ndtll2Ndfo(self):
         return invertPermutation(self.ndfo2Ndtll)
 
-    @cached_property
-    def ndttl2Ndac(self):
-        return [self.ndfo2Ndac[ndfo] for ndfo in self.ndttl2Ndfo]
-
-    @cached_property
+    @cached_property_profiler
     def ndtl2Node2(self):
         retval = [None, None]
         for i, isTail in enumerate([False, True]):
@@ -338,7 +359,7 @@ class Hier2hierBatch(object):
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def encodedTextByNdtlp2(self):
         retval = [None, None]
         textVocab = self.torchBatch.dataset.fields["src"].vocabs.text
@@ -352,7 +373,7 @@ class Hier2hierBatch(object):
                 result = [
                     torch.LongTensor([textVocab.stoi[ch] for ch in text])
                     for text in result
-                    if text is not None
+                    if text not in [None, ""]
                 ]
                 if result:
                     retval[i] = rnn.pack_sequence(result)
@@ -360,7 +381,7 @@ class Hier2hierBatch(object):
                     retval[i] = None
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def ndtlp2Ndtl2(self):
         retval = [None, None]
         for i, isTail in enumerate([False, True]):
@@ -375,18 +396,18 @@ class Hier2hierBatch(object):
                         break
                     decreasingTextLengths.append(len(text))
 
-                retval[i] = self.__packed2ObjIndices(decreasingTextLengths)
+                retval[i] = self.packed2ObjIndices(decreasingTextLengths)
         return retval
 
-    @cached_property
-    def encodedTextByDTtL(self):
+    @cached_property_profiler
+    def encodedTextByTtDLP(self):
         return self.encodedTextByNdtlp2[0]
 
-    @cached_property
-    def encodedTailByDTlL(self):
+    @cached_property_profiler
+    def encodedTailByTlDLP(self):
         return self.encodedTextByNdtlp2[1]
 
-    @cached_property
+    @cached_property_profiler
     def ndtl2Toi2(self):
         # NDTL to TOI
         retval = [None, None]
@@ -395,7 +416,7 @@ class Hier2hierBatch(object):
             
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def ndtlp2Toi2(self):
         # NDTLP to TOI
         retval = [None, None]
@@ -404,55 +425,55 @@ class Hier2hierBatch(object):
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def targetOutputsByToi(self):
         return self.torchBatch.tgt[0]
 
-    @cached_property
+    @cached_property_profiler
     def targetOutputLengthsByToi(self):
         return self.torchBatch.tgt[1]
 
-    @cached_property
+    @cached_property_profiler
     def tdol2Toi(self):
         retval = list(range(len(self.targetOutputLengthsByToi)))
-        retval.sort(key =lambda toi:-self.targetOutputLengthsByToi[toi])
+        retval.sort(key =lambda toi:(-self.targetOutputLengthsByToi[toi], toi))
         return torch.LongTensor(retval)
 
-    @cached_property
+    @cached_property_profiler
     def toi2Tdol(self):
         return torch.LongTensor(invertPermutation(self.tdol2Toi.tolist()))
 
-    @cached_property
+    @cached_property_profiler
     def targetOutputsByTdol(self):
         return self.targetOutputsByToi[self.tdol2Toi]
 
-    @cached_property
+    @cached_property_profiler
     def targetOutputLengthsByTdol(self):
         return self.targetOutputLengthsByToi[self.tdol2Toi]
 
-    @cached_property
+    @cached_property_profiler
     def ndfo2Gni(self):
         return list(range(len(self.ndfo2Toi)))
 
-    @cached_property
+    @cached_property_profiler
     def avdl2Gni(self):
         start=len(self.ndfo2Toi)
         end = start + len(self.avdl2Toi)
         return list(range(start, end))
 
-    @cached_property
+    @cached_property_profiler
     def ndttp2Gni(self):
         start=len(self.ndfo2Toi) + len(self.avdl2Toi)
         end = start + len(self.ndtlp2Toi2[0])
         return list(range(start, end))
 
-    @cached_property
+    @cached_property_profiler
     def ndtlp2Gni(self):
         start=len(self.ndfo2Toi) + len(self.avdl2Toi) + len(self.ndtlp2Toi2[0])
         end = start + len(self.ndtlp2Toi2[1])
         return list(range(start, end))
 
-    @cached_property
+    @cached_property_profiler
     def gni2Toi(self):
         retval = [ None for _ in range(self.graphNodeCount) ]
         # ndfo2Toi, avdl2Toi, avdlp2Toi, ndtlp2Toi2[0], ndtlp2Toi2[1].
@@ -469,18 +490,18 @@ class Hier2hierBatch(object):
 
         return retval
 
-    @cached_property
+    @cached_property_profiler
     def gni2Tdol(self):
-        return torch.LongTensor([ self.toi2Tdol[toi] for toi in self.gni2Toi ])
+        return torch.LongTensor([ int(self.toi2Tdol[toi]) for toi in self.gni2Toi ])
 
-    @cached_property
+    @cached_property_profiler
     def graphNodeCount(self):
         return (
             len(self.node2Ndfo) + len(self.avdl2Ndac) +
             len(self.ndtlp2Ndtl2[0]) + len(self.ndtlp2Ndtl2[1])
         )
 
-    @cached_property
+    @cached_property_profiler
     def posNbrhoodGraphByGni(self):
         """
         Build neighborhoods for:
@@ -548,37 +569,46 @@ class Hier2hierBatch(object):
             nbrHoodGraph[nbr1].append(nbr2)
             nbrHoodGraph[nbr2].append(nbr1)
 
+        for i, adjList in enumerate(nbrHoodGraph):
+            nbrHoodGraph[i] = sorted(set(adjList))
         return nbrHoodGraph
 
-    @cached_property
+    @cached_property_profiler
     def gndtol2Gni(self):
         """
         Mapping of GNTDOL indices to GNI indices.
         """
         retval = list(range(self.graphNodeCount))
-        return sorted(retval, key=lambda gni:self.gni2Tdol[gni])
+        return sorted(retval, key=lambda gni:(int(self.gni2Tdol[gni]), gni))
 
-    @cached_property
+    @cached_property_profiler
+    def gndtol2Toi(self):
+        """
+        Mapping of GNDTOL indices to TOI tree indices.
+        """
+        return [self.gni2Toi[gni] for gni in self.gndtol2Gni]
+
+    @cached_property_profiler
     def gndtol2Tdol(self):
         return self.gni2Tdol[self.gndtol2Gni]
 
-    @cached_property
+    @cached_property_profiler
     def gni2Gndtol(self):
         """
         Mapping of GNI indices to GNTDOL indices.
         """
         return invertPermutation(self.gndtol2Gni)
 
-    @cached_property
+    @cached_property_profiler
     def posNbrhoodGraphByGndtol(self):
         """
         Mapping of GNTDOL indices to GNI indices.
         """
         adjListTensor = [
-            torch.LongTensor([
+            torch.LongTensor(sorted([
                 self.gni2Gndtol[nbrGni]
                 for nbrGni in self.posNbrhoodGraphByGni[self.gndtol2Gni[gndtol]]
-            ])
+            ]))
             for gndtol in range(self.graphNodeCount)
         ]
         adjLengthsTensor = torch.LongTensor([len(adjList) for adjList in adjListTensor])
@@ -587,12 +617,12 @@ class Hier2hierBatch(object):
 
         return (adjListTensor, adjLengthsTensor)
 
-    @cached_property
+    @cached_property_profiler
     def fullSpotlight(self):
         return torch.LongTensor(list(range(self.graphNodeCount)))
 
     @staticmethod
-    def __packed2ObjIndices(decreasingObjLengths):
+    def packed2ObjIndices(decreasingObjLengths):
         # Build linear2PackedIndex.
         packedIndex = 0
         objCount = len(decreasingObjLengths)
@@ -624,10 +654,11 @@ class Hier2hierBatch(object):
 
         return packed2ObjIndices
 
+    @methodProfiler
     def __tailTextNeighborPairs(self, xmlTree):
         def textNtailTraversal(node, tailTextOrdering):
             # First, we have node.text.
-            if node.text is not None:
+            if node.text not in [None, ""]:
                 tailTextOrdering.append((node, False))
 
             # Then, come all children.
@@ -635,7 +666,7 @@ class Hier2hierBatch(object):
                 textNtailTraversal(childNode, tailTextOrdering)
 
             # Finally, we have node.tail.
-            if node.tail is not None:
+            if node.tail not in [None, ""]:
                 tailTextOrdering.append((node, True))
 
         # Build tail text ordering.
@@ -651,7 +682,226 @@ class Hier2hierBatch(object):
             return graphIndex
 
         retval = []
-        lastBlock = tailTextOrdering[0]
-        for curBlock in tailTextOrdering[1:]:
-            retval.append((getGraphIndex(lastBlock), getGraphIndex(lastBlock)))
+        if tailTextOrdering:
+            lastBlock = tailTextOrdering[0]
+            for curBlock in tailTextOrdering[1:]:
+                retval.append((getGraphIndex(lastBlock), getGraphIndex(curBlock)))
+                lastBlock = curBlock
         return retval
+
+def splitByToi(allVecs, vecIndex2Toi, sampleCount, prefix=""):
+    frame = inspect.stack()[1]
+    name = "{0}{1}:{2}".format(prefix, basename(frame.filename), frame.lineno)
+    retval = [[] for _ in range(sampleCount)]
+    for index, vec in enumerate(allVecs):
+        retval[vecIndex2Toi[index]].append(vec)
+    retval = [
+        [
+            vec.view([1] + list(vec.shape)) # Reshape for better catting.
+            for vec in vecList
+        ]
+        for vecList in retval
+    ]
+    retval = [
+        torch.cat(vecList) if vecList else torch.Tensor([])
+        for vecList in retval
+    ]
+    return name, retval
+
+
+def batchDataUnitTest(trainer, test_data):
+    sampleCount = len(test_data)
+    # Create data batch.
+    trainer.load(test_data)
+    batch_iterator = Hier2HierIterator(
+        preprocess_batch=trainer.model.preprocess_batch,
+        dataset=test_data, batch_size=len(test_data),
+        sort=False, shuffle=True, sort_within_batch=False,
+        sort_key=lambda x: len(x.tgt),
+        repeat=False)
+    batch_generator = batch_iterator.__iter__(unitTesting=True)
+    test_data_batch = list(batch_generator)[0]
+
+    # Vocabs.
+    tagVocab = test_data.fields["src"].vocabs.tags
+    attrsVocab = test_data.fields["src"].vocabs.attrs
+    attrValuesVocab = test_data.fields["src"].vocabs.attrValues
+    textVocab = test_data.fields["src"].vocabs.text
+    outputVocab = test_data.fields["tgt"].vocab
+
+    # Check encodedNodesByNdfo
+    allNodes = sum([list(tree.iter()) for tree in test_data_batch.inputs], [])
+    allNodesInNdfo = test_data_batch.ndfo2Node
+    lastFanout = 100000
+    for node in allNodesInNdfo:
+        # NDFO nodes are not in decreasing fanout order.
+        assert(len(node) <= lastFanout)
+        lastFanout = len(node)
+    assert(set(allNodesInNdfo) == set(allNodes))
+    assert(len(allNodesInNdfo) == test_data_batch.encodedNodesByNdfo.shape[0])
+    for i in range(test_data_batch.encodedNodesByNdfo.shape[0]):
+        assert(tagVocab.stoi[allNodesInNdfo[i].tag] == int(test_data_batch.encodedNodesByNdfo[i]))
+
+    # Check parentSelectorByNdfo.
+    node2ndfo = {node:index for index, node in enumerate(allNodesInNdfo)}
+    node2parent = {}
+    for ndfo, node in enumerate(allNodesInNdfo):
+        for child in node:
+            node2parent[child] = node
+    for ndfo, node in enumerate(allNodesInNdfo):
+        for child in node:
+            childNdfo = node2ndfo[child]
+            parentNdfo = test_data_batch.parentSelectorByNdfo[childNdfo]
+            assert(parentNdfo == ndfo)
+    allRoots = [tree.getroot() for tree in test_data_batch.inputs]
+    for root in allRoots:
+        rootNdfo = node2ndfo[root]
+        rootParentNdfo = test_data_batch.parentSelectorByNdfo[rootNdfo]
+        assert(rootNdfo == rootParentNdfo)
+    assert(sampleCount + len(node2parent) == len(allNodes))
+    
+    # Check childSelectorByNdfoList and decreasingFanoutsFactorByNdfo.
+    lastLen = 0
+    totalChildren = sum([len(childList) for childList in test_data_batch.childSelectorByNdfoList])
+    assert(totalChildren == len(node2parent))
+    for childSelectorByNdfo in test_data_batch.childSelectorByNdfoList:
+        curLen = len(childSelectorByNdfo)
+        assert(curLen != 0)
+        assert(lastLen <= curLen)
+        lastLen = curLen
+    for ndfo, node in enumerate(allNodesInNdfo):
+        curChildList = []
+        for childSelectorByNdfo in test_data_batch.childSelectorByNdfoList:
+            if ndfo < len(childSelectorByNdfo):
+                curChildNdfo = childSelectorByNdfo[ndfo]
+                curChild = allNodesInNdfo[curChildNdfo]
+                curChildList.append(curChild)
+        curChildList.reverse()
+        for childIndex, childNode in enumerate(node):
+            assert(curChildList[childIndex] == childNode)
+        assert(len(curChildList) == len(node))
+        if len(node):
+            assert(float(len(curChildList)) == float(test_data_batch.decreasingFanoutsFactorByNdfo[ndfo]))
+        else:
+            assert(ndfo >= test_data_batch.decreasingFanoutsFactorByNdfo.shape[0])
+
+    # Check encodedAttrLabelsByAvdl.
+    allAttrs = sum([list(node.attrib.items()) for node in allNodes], [])
+    assert(len(allAttrs) == len(test_data_batch.attrsByAdfo))
+    allAttrsInAvdl = [test_data_batch.attrsByAdfo[adfo] for adfo in test_data_batch.avdl2Adfo]
+    assert(len(allAttrsInAvdl) == len(test_data_batch.encodedAttrLabelsByAvdl))
+    for avdl, attrLabelCode in enumerate(test_data_batch.encodedAttrLabelsByAvdl):
+        assert(int(attrLabelCode) == attrsVocab.stoi[allAttrsInAvdl[avdl][0]])
+
+    # Check encodedAttrSymbolsByAvdlp.
+    attrValues, attrValueLengths = rnn.pad_packed_sequence(
+        test_data_batch.encodedAttrSymbolsByAvdlp,
+        batch_first=True)
+    assert(len(attrValues) <= len(allAttrsInAvdl))
+    for i in range(len(attrValues), len(allAttrsInAvdl)):
+        assert(allAttrsInAvdl[i][1] == "")
+    for avdl, (attr, attrValue) in enumerate(allAttrsInAvdl):
+        if avdl < attrValueLengths.shape[0]:
+            assert(len(attrValue) == int(attrValueLengths[avdl]))
+        for i, attrSymbol in enumerate(attrValue):
+            assert(int(attrValues[avdl, i]) == attrValuesVocab.stoi[attrSymbol])
+
+    # Check ndac2Ndfo.
+    assert(
+        set([test_data_batch.ndfo2Node[ndfo ]for ndfo in test_data_batch.ndac2Ndfo])
+        == set(allNodes)
+    )
+    lastAttrCount = 1000000
+    for ndac, ndfo in enumerate(test_data_batch.ndac2Ndfo):
+        ndfo = int(ndfo)
+        curAttrCount = len(allNodesInNdfo[ndfo].attrib)
+        assert(curAttrCount <= lastAttrCount)
+        lastAttrCount = curAttrCount
+
+    # Check avdl2ndac
+    allNodesInNdac = [test_data_batch.ndfo2Node[ndfo] for ndfo in test_data_batch.ndac2Ndfo]
+    for avdl, ndac in enumerate(test_data_batch.avdl2Ndac):
+        curAttribs = allNodesInNdac[ndac].attrib
+        attrLabel, attrValue = allAttrsInAvdl[avdl]
+        assert(curAttribs[attrLabel] == attrValue)
+
+    # Check avdl2ndfo
+    for avdl, ndfo in enumerate(test_data_batch.avdl2Ndfo):
+        curAttribs = allNodesInNdfo[ndfo].attrib
+        attrLabel, attrValue = allAttrsInAvdl[avdl]
+        assert(curAttribs[attrLabel] == attrValue)
+
+    # Check avdlAttrSelectorsListByNdac and decreasingAttrCountsFactorByNdac.
+    lastLen = 0
+    for avdlAttrSelectorByNdac in test_data_batch.avdlAttrSelectorsListByNdac:
+        curLen = len(avdlAttrSelectorByNdac)
+        assert(curLen != 0)
+        assert(lastLen <= curLen)
+        lastLen = curLen
+    for ndac, ndfo in enumerate(test_data_batch.ndac2Ndfo):
+        node = test_data_batch.ndfo2Node[ndfo]
+        curAttrList = []
+        attrCountFound = 0
+        for avdlAttrSelectorByNdac in test_data_batch.avdlAttrSelectorsListByNdac:
+            if ndac < len(avdlAttrSelectorByNdac):
+                curAttrAvdl = avdlAttrSelectorByNdac[ndac]
+                attrLabel, attrValue = allAttrsInAvdl[curAttrAvdl]
+                assert(node.attrib[attrLabel] == attrValue)
+                attrCountFound += 1
+        assert(len(node.attrib) == attrCountFound)
+        if attrCountFound:
+            assert(float(attrCountFound) == float(test_data_batch.decreasingAttrCountsFactorByNdac[ndac]))
+        else:
+            assert(ndac >= test_data_batch.decreasingAttrCountsFactorByNdac.shape[0])
+
+    # Check encodedTextByNdtlp2(i.e. encodedTextByTtDLP and encodedTailByTlDLP)
+    for isTail in [False, True]:
+        def getText(node):
+            return node.tail if isTail else node.text
+        encodedTextByDTL = test_data_batch.encodedTextByNdtlp2[isTail]
+        if encodedTextByDTL is None:
+            assert(all([getText(node) in [None, ""] for node in allNodes]))
+        else:
+            # Length order is already enforced.
+            encodedText, textLengths = rnn.pad_packed_sequence(encodedTextByDTL, batch_first=True)
+
+            ndfo2Ndtl = test_data_batch.ndfo2Ndtl2[isTail]
+
+            assert(len(ndfo2Ndtl) == len(allNodes))
+            for ndfo, node in enumerate(allNodesInNdfo):
+                ndtl = ndfo2Ndtl[ndfo]
+                text = getText(node)
+                if text in [None, ""]:
+                    assert(ndtl >= len(textLengths))
+                else:
+                    assert(len(text) == textLengths[ndtl])
+                    for i, ch in enumerate(text):
+                       assert(int(encodedText[ndtl][i]) == textVocab.stoi[ch])
+
+    # ndttl2Ndac, ndtll2ndt  and ndtll2Ndac.
+    for ndfo, ndtll in enumerate(test_data_batch.ndfo2Ndtll):
+        ndttl = test_data_batch.ndtll2Ndttl[ndtll]
+        ndac = test_data_batch.ndttl2Ndac[ndttl]
+        assert(ndfo == test_data_batch.ndac2Ndfo[ndac])
+
+    # targetOutputsByTdol and targetOutputLengthsByTdol.
+    assert(len(test_data_batch.targetOutputsByTdol) == sampleCount)
+    assert(len(test_data_batch.targetOutputLengthsByTdol) == sampleCount)
+    targetOutputByToi = test_data_batch.targetOutputsByToi
+    targetOutputLengthsByToi = test_data_batch.targetOutputLengthsByToi
+    for toi, targetOutput in enumerate(targetOutputByToi):
+        length = targetOutputLengthsByToi[toi]
+        tdol = int(test_data_batch.toi2Tdol[toi])
+        assert(length == test_data_batch.targetOutputLengthsByTdol[tdol])
+        for i in range(length):
+            assert(targetOutput[i] == test_data_batch.targetOutputsByTdol[tdol][i])
+
+    for i in range(sampleCount-1):
+        assert(test_data_batch.targetOutputLengthsByTdol[i] >= test_data_batch.targetOutputLengthsByTdol[i+1])
+
+    # gndtol2Gni and gndtol2Tdol
+    lastTdol = -1
+    for gndtol, gni in enumerate(test_data_batch.gndtol2Gni):
+        assert(test_data_batch.gndtol2Tdol[gndtol] == test_data_batch.gni2Tdol[gni])
+        assert(test_data_batch.gndtol2Tdol[gndtol] >= lastTdol)
+        lastTdol = test_data_batch.gndtol2Tdol[gndtol]

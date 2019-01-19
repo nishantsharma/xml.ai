@@ -12,50 +12,48 @@ class Evaluator(object):
     """ Class to evaluate models with given datasets.
 
     Args:
+        model (hier2hier.models): model to evaluate
+        data (hier2hier.dataset.dataset.Dataset): dataset to evaluate against
         loss (hier2hier.loss, optional): loss for evaluator (default: hier2hier.loss.NLLLoss)
         batch_size (int, optional): batch size for evaluator (default: 64)
     """
 
-    def __init__(self, loss=NLLLoss(), batch_size=64):
+    def __init__(self, model, device, data, loss=NLLLoss(), batch_size=64):
         self.loss = loss
         self.batch_size = batch_size
 
-    def evaluate(self, model, device, data, calcAccuracy=False):
+        self.model = model
+        self.batch_iterator = Hier2HierIterator(
+            preprocess_batch=model.preprocess_batch,
+            dataset=data, batch_size=self.batch_size,
+            sort=False, shuffle=True,
+            device=device, train=False)
+
+    def evaluate(self, calcAccuracy=False):
         """ Evaluate a model on given dataset and return performance.
 
         Args:
-            model (hier2hier.models): model to evaluate
-            data (hier2hier.dataset.dataset.Dataset): dataset to evaluate against
-
         Returns:
             loss (float): loss of the given model on the given dataset
         """
-        model.eval()
+        self.model.eval()
 
         loss = self.loss
         loss.reset()
         match = 0
         total = 0
 
-        batch_iterator = Hier2HierIterator(
-            preprocess_batch=model.preprocess_batch,
-            dataset=data, batch_size=self.batch_size,
-            sort=False, shuffle=True,
-            device=device, train=False)
-
-        tgt_vocab = data.fields[hier2hier.tgt_field_name].vocab
-        pad = tgt_vocab.stoi[data.fields[hier2hier.tgt_field_name].pad_token]
-
         count = 0
         accuracy_total = 0
         beamAccuracy_total = 0
 
         with torch.no_grad():
-            for hier2hierBatch in batch_iterator:
-                input_variables  = getattr(hier2hierBatch.torchBatch, hier2hier.src_field_name)
-                target_variables, target_lengths = getattr(hier2hierBatch.torchBatch, hier2hier.tgt_field_name)
+            batch_generator = self.batch_iterator.__iter__()
+            for hier2hierBatch in batch_generator:
+                target_variables = hier2hierBatch.targetOutputsByToi
+                target_lengths = hier2hierBatch.targetOutputLengthsByToi
 
-                decodedSymbolProbs, decodedSymbols = model(
+                decodedSymbolProbs, decodedSymbols = self.model(
                     hier2hierBatch,
                     collectOutput=calcAccuracy,
                     )
@@ -65,9 +63,9 @@ class Evaluator(object):
                                             target_variables,
                                             target_lengths,
                                             decodedSymbols,
-                                            device=device)
+                                            device=self.device)
 
-                    _, beamDecodedSymbols = model(
+                    _, beamDecodedSymbols = self.model(
                                             hier2hierBatch,
                                             beam_count=6,
                                             collectOutput=calcAccuracy,
@@ -77,7 +75,7 @@ class Evaluator(object):
                                             target_variables,
                                             target_lengths,
                                             beamDecodedSymbols,
-                                            device=device)
+                                            device=self.device)
 
                     count += 1
                     accuracy_total += accuracy

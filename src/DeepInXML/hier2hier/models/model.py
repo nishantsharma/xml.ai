@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from hier2hier.util import blockProfiler, methodProfiler, lastCallProfile, nullTensorBoardHook
 
 from .moduleBase import ModuleBase
-from .hier2hierBatch import Hier2hierBatch
+from .hier2hierBatch import Hier2hierBatch, splitByToi
 from .hierarchyPropagator import HierarchyPropagator
 from .attrInfoPropagator import AttrInfoPropagator
 from .encoderRNN import EncoderRNN
@@ -128,11 +128,13 @@ class Hier2hier(ModuleBase):
         self.outputDecoder = OutputDecoder(
             outputVocab,
             modelArgs.propagated_info_len,
+            modelArgs.attentionSubspaceVecLen,
             modelArgs.output_decoder_state_width,
             modelArgs.output_decoder_stack_depth,
             modelArgs.max_output_len,
             sos_id,
             eos_id,
+            modelArgs.spotlightThreshold,
             modelArgs.teacher_forcing_ratio,
             modelArgs.input_dropout_p,
             modelArgs.dropout_p,
@@ -170,8 +172,17 @@ class Hier2hier(ModuleBase):
         childSelectorByNdfoList,
         decreasingFanoutsFactorByNdfo,
         tensorBoardHook,
+        debugPack=None,
     ):
         propagatedNodeInfoByNdfo = self.nodeTagsEmbedding(encodedNodesByNdfo)
+        if debugPack is not None:
+            (dataStagesToDebug, hier2hierBatch) = debugPack
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         # Propagate through nodes.
         propagatedNodeInfoByNdfo = self.hierarchyPropagator1(
@@ -180,6 +191,7 @@ class Hier2hier(ModuleBase):
                     childSelectorByNdfoList,
                     decreasingFanoutsFactorByNdfo,
                     tensorBoardHook,
+                    debugPack,
                 )
 
         return propagatedNodeInfoByNdfo
@@ -197,7 +209,11 @@ class Hier2hier(ModuleBase):
         decreasingAttrCountsFactorByNdac,
     ):
         # Propagated info in Avdl order(permutation of the attribute world).
-        propagatedNodeInfoByAvdl = propagatedNodeInfoByNdfo[avdl2Ndfo]
+        propagatedNodeInfoByAvdl = torch.index_select(
+            propagatedNodeInfoByNdfo,
+            0,
+            avdl2Ndfo
+        )
 
         # Encode attribute labels.
         embeddedAttrLabelsByAvdl = self.attrLabelEmbedding(encodedAttrLabelsByAvdl)
@@ -215,53 +231,58 @@ class Hier2hier(ModuleBase):
 
         # Propagate through attributes.
         propagatedNodeInfoByNdac = propagatedNodeInfoByNdfo[ndac2Ndfo]
-        propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl = self.attrInfoPropagator(
-                    encodedAttrsByAvdl,
-                    propagatedNodeInfoByNdac,
-                    avdlAttrSelectorsListByNdac,
-                    decreasingAttrCountsFactorByNdac,
-                    avdl2Ndac,
-                )
+        if not avdlAttrSelectorsListByNdac:
+            propagatedNodeInfoByNdac = propagatedNodeInfoByNdfo[ndac2Ndfo]
+            attnReadyAttrInfoByAvdl = torch.tensor([])
+        else:
+            propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl = self.attrInfoPropagator(
+                encodedAttrsByAvdl,
+                propagatedNodeInfoByNdac,
+                avdlAttrSelectorsListByNdac,
+                decreasingAttrCountsFactorByNdac,
+                avdl2Ndac,
+            )
+
         return propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl, ignoredAttnReadyAttrPositionInfoByAvdlp
 
     @methodProfiler
     def propagateThroughTextAndTail(
         self,
         propagatedNodeInfoByNdac,
-        encodedTextByDTtL,
-        encodedTailByDTlL,
+        encodedTextByTtDLP,
+        encodedTailByTlDLP,
         ndttl2ndac,
         ndtll2ndttl,
         ndfo2ndtll,
     ):
         # Propagate through node.text
         propagatedNodeInfoByNDTtL = propagatedNodeInfoByNdac[ndttl2ndac]
-        if encodedTextByDTtL is not None:
-            attnReadyTextInfoByDTtL, propagatedNodeInfoByNDTtL = self.textInfoPropagator(
-                        encodedTextByDTtL,
+        if encodedTextByTtDLP is not None:
+            attnReadyTextInfoByTtDLP, propagatedNodeInfoByNDTtL = self.textInfoPropagator(
+                        encodedTextByTtDLP,
                         propagatedNodeInfoByNDTtL.view(
                             [1] + list(propagatedNodeInfoByNDTtL.shape)
                         ),
                     )
         else:
-            attnReadyTextInfoByDTtL = torch.zeros([0, self.propagated_info_len])
+            attnReadyTextInfoByTtDLP = torch.zeros([0, self.propagated_info_len])
 
         # Propagate through node.tail
         propagatedNodeInfoByNDTlL = propagatedNodeInfoByNDTtL[ndtll2ndttl]
-        if encodedTailByDTlL is not None:
-            attnReadyTextInfoByDTlL, propagatedNodeInfoByNDTlL = self.tailInfoPropagator(
-                        encodedTailByDTlL,
+        if encodedTailByTlDLP is not None:
+            attnReadyTextInfoByTlDLP, propagatedNodeInfoByNDTlL = self.tailInfoPropagator(
+                        encodedTailByTlDLP,
                         propagatedNodeInfoByNDTlL.view(
                             [1] + list(propagatedNodeInfoByNDTlL.shape)
                         ),
                     )
         else:
-            attnReadyTextInfoByDTlL = torch.zeros([0, self.propagated_info_len])
+            attnReadyTextInfoByTlDLP = torch.zeros([0, self.propagated_info_len])
     
         # Permute back into NDFO.
         propagatedNodeInfoByNdfo = propagatedNodeInfoByNDTlL[ndfo2ndtll]
 
-        return attnReadyTextInfoByDTtL, attnReadyTextInfoByDTlL, propagatedNodeInfoByNdfo
+        return attnReadyTextInfoByTtDLP, attnReadyTextInfoByTlDLP, propagatedNodeInfoByNdfo
 
     @methodProfiler
     def propagateThroughHierarchyFinal(
@@ -271,7 +292,10 @@ class Hier2hier(ModuleBase):
         childSelectorByNdfoList,
         decreasingFanoutsFactorByNdfo,
         tensorBoardHook,
+        debugPack=None,
     ):
+        if debugPack is not None:
+            (dataStagesToDebug, hier2hierBatch) = debugPack
         # Propagate through hierarchy one final time. This gives attention ready nodes
         # to be influenced by text and attr data, one last time.
         propagatedNodeInfoByNdfo = self.hierarchyPropagator2(
@@ -280,6 +304,7 @@ class Hier2hier(ModuleBase):
                     childSelectorByNdfoList,
                     decreasingFanoutsFactorByNdfo,
                     tensorBoardHook,
+                    debugPack,
                 )
 
         return propagatedNodeInfoByNdfo
@@ -290,7 +315,16 @@ class Hier2hier(ModuleBase):
             tensorBoardHook=nullTensorBoardHook,
             beam_count=None,
             collectOutput=None,
+            debugDataStages=False,
+            max_output_len=None,
     ):
+        if debugDataStages:
+            dataStagesToDebug = []
+            debugPack = (dataStagesToDebug, hier2hierBatch)
+        else:
+            dataStagesToDebug = None
+            debugPack = None
+
         # Handle node hierarchy(first pass).
         propagatedNodeInfoByNdfo = self.propagateThroughHierarchyInit(
             hier2hierBatch.encodedNodesByNdfo,
@@ -298,7 +332,15 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.childSelectorByNdfoList,
             hier2hierBatch.decreasingFanoutsFactorByNdfo,
             tensorBoardHook,
+            debugPack,
         )
+        if debugDataStages:
+            # Use ndfo2Toi partition.
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         # Handle node.attributes.
         (
@@ -315,20 +357,55 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.avdlAttrSelectorsListByNdac,
             hier2hierBatch.decreasingAttrCountsFactorByNdac,
         )
+        if debugDataStages:
+            # Use ndfo2Toi(ndac2Ndfo(x)), avdl2Toi and avdlp2Toi.
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdac,
+                hier2hierBatch.ndac2Toi,
+                hier2hierBatch.sampleCount,
+            ))
+            dataStagesToDebug.append(splitByToi(
+                attnReadyAttrInfoByAvdl,
+                hier2hierBatch.avdl2Toi,
+                hier2hierBatch.sampleCount,
+            ))
+            dataStagesToDebug.append(splitByToi(
+                ignoredAttnReadyAttrPositionInfoByAvdlp.data,
+                hier2hierBatch.avdlp2Toi,
+                hier2hierBatch.sampleCount,
+            ))
 
         # Handle node.text and node.tail.
         (
-            attnReadyTextInfoByDTtL,
-            attnReadyTailInfoByDTlL,
+            attnReadyTextInfoByTtDLP,
+            attnReadyTailInfoByTlDLP,
             propagatedNodeInfoByNdfo,
         ) = self.propagateThroughTextAndTail(
             propagatedNodeInfoByNdac,
-            hier2hierBatch.encodedTextByDTtL,
-            hier2hierBatch.encodedTailByDTlL,
+            hier2hierBatch.encodedTextByTtDLP,
+            hier2hierBatch.encodedTailByTlDLP,
             hier2hierBatch.ndttl2Ndac,
             hier2hierBatch.ndtll2Ndttl,
             hier2hierBatch.ndfo2Ndtll,
         )
+        if debugDataStages:
+            # Use ndfo2Toi and ndtxl2Toi.
+            # Use ndfo2Toi(ndac2Ndfo(x)), avdl2Toi and avdlp2Toi.
+            dataStagesToDebug.append(splitByToi(
+                attnReadyTextInfoByTtDLP.data,
+                hier2hierBatch.ndtlp2Toi2[False],
+                hier2hierBatch.sampleCount,
+            ))
+            dataStagesToDebug.append(splitByToi(
+                attnReadyTailInfoByTlDLP.data,
+                hier2hierBatch.ndtlp2Toi2[True],
+                hier2hierBatch.sampleCount,
+            ))
+            dataStagesToDebug.append(splitByToi(
+                propagatedNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount,
+            ))
 
         # Handle node hierarchy(final pass).
         attnReadyNodeInfoByNdfo = self.propagateThroughHierarchyFinal(
@@ -337,18 +414,35 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.childSelectorByNdfoList,
             hier2hierBatch.decreasingFanoutsFactorByNdfo,
             tensorBoardHook,
+            debugPack,
         )
+        if debugDataStages:
+            # Use ndfo2Toi.
+            dataStagesToDebug.append(splitByToi(
+                attnReadyNodeInfoByNdfo,
+                hier2hierBatch.ndfo2Toi,
+                hier2hierBatch.sampleCount
+            ))
 
         # Concatenate all attention ready infos.
         attnReadyVecsByGni = torch.cat([
             attnReadyNodeInfoByNdfo,
             attnReadyAttrInfoByAvdl,
-            attnReadyTextInfoByDTtL.data,
-            attnReadyTailInfoByDTlL.data,
+            attnReadyTextInfoByTtDLP.data,
+            attnReadyTailInfoByTlDLP.data,
         ])
-
         attnReadyVecsByGndtol = attnReadyVecsByGni[hier2hierBatch.gndtol2Gni]
 
+        if debugDataStages:
+            # Use gni2Toi.
+            dataStagesToDebug.append(splitByToi(
+                attnReadyVecsByGndtol,
+                hier2hierBatch.gndtol2Toi,
+                hier2hierBatch.sampleCount
+            ))
+
+        if max_output_len is None:
+            max_output_len = hier2hierBatch.targetOutputLengthsByTdol[0]
         # Decode attnReadyEncodedPositions to obtain the desired output.
         (
             outputSymbolTensors,
@@ -356,7 +450,7 @@ class Hier2hier(ModuleBase):
             teacherForcedSelections,
             decoderTestTensors,
         ) = self.outputDecoder(
-            len(hier2hierBatch.torchBatch.src),
+            hier2hierBatch.sampleCount,
             hier2hierBatch.posNbrhoodGraphByGndtol,
             hier2hierBatch.fullSpotlight,
             attnReadyVecsByGndtol,
@@ -364,9 +458,17 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.targetOutputLengthsByTdol,
             hier2hierBatch.gndtol2Tdol,
             hier2hierBatch.tdol2Toi,
+            hier2hierBatch.toi2Tdol,
             tensorBoardHook,
             collectOutput=collectOutput,
             beam_count=beam_count,
-            max_output_len=hier2hierBatch.targetOutputLengthsByTdol[0])
+            max_output_len=max_output_len,
+            debugPack=debugPack)
+        if debugDataStages:
+            # No Change.
+            dataStagesToDebug.append(("outputSymbolTensors", outputSymbolTensors))
 
-        return outputSymbolTensors, outputSymbols
+        if debugDataStages:
+            return dataStagesToDebug
+        else:
+            return outputSymbolTensors, outputSymbols
