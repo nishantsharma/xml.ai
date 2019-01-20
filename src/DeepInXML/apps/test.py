@@ -121,7 +121,7 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
         batch_generator = batch_iterator.__iter__(unitTesting=True)
         test_data_batch = list(batch_generator)[0]
 
-        dataDebugStages = trainer.model(test_data_batch, debugDataStages=True, max_output_len=4)
+        dataDebugStages = trainer.model(test_data_batch, debugDataStages=True)
 
         curGraphNodeCount = len([gni for gni, toi in enumerate(test_data_batch.gni2Toi) if toi==watchPosition])
         if prevGraphNodeCount is not None:
@@ -133,24 +133,24 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
 
         # Remove computation stages which are not relevant for exampleToWatch at watchPosition.
         _curResult = []
-        lastPrefix = "{0}@".format(outputLenToWatch)
         for result in curResult:
-            if result[0].startswith(lastPrefix):
-                _curResult.append(curResult[-1])
-                break
-            else:
-                _curResult.append(result)
+            atPos = result[0].find("@")
+            if atPos >= 0:
+                try:
+                    charIndex = int(result[0][0:atPos])
+                    if charIndex >= outputLenToWatch:
+                        continue
+                except ValueError:
+                    pass
+            _curResult.append(result)
         curResult = _curResult
 
         if prevResult is not None:
-            # assert(len(curResult) == len(prevResult))
-            stageCount = min(len(curResult), len(prevResult))
+            assert(len(curResult) == len(prevResult))
+            stageCount = len(curResult)
             for stage in range(stageCount):
-                if stage < stageCount-1:
-                    assert(curResult[stage][1].shape == prevResult[stage][1].shape)
-                    diff = curResult[stage][1] - prevResult[stage][1]
-                else:
-                    diff = curResult[stage][1][0:outputLenToWatch] - prevResult[stage][1][0:outputLenToWatch]
+                assert(curResult[stage][1].shape == prevResult[stage][1].shape)
+                diff = curResult[stage][1] - prevResult[stage][1]
                 diffNorm = torch.norm(diff)
                 print("Trial {0}. Stage {1}:{2}. Diff {3}".format(
                     trial,
@@ -176,7 +176,7 @@ def trainingProgressTest(testNo, appConfig, modelArgs, device):
     modelArgs.dropout_p = 0
     modelArgs.input_dropout_p = 0
     modelArgs.teacher_forcing_ratio = 0.5
-    appConfig.epochs = 100
+    appConfig.epochs = 10
     trainer = SupervisedTrainer(appConfig, modelArgs, device)
 
     # Create test data.
@@ -197,7 +197,6 @@ def trainingProgressTest(testNo, appConfig, modelArgs, device):
 
     # Run tests.
     trainer.train(test_data)
-    raise NotImplementedError()
 
 def hierarchyPropagatorTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()

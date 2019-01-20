@@ -50,31 +50,32 @@ class Evaluator(object):
         with torch.no_grad():
             batch_generator = self.batch_iterator.__iter__()
             for hier2hierBatch in batch_generator:
-                target_variables = hier2hierBatch.targetOutputsByToi
-                target_lengths = hier2hierBatch.targetOutputLengthsByToi
+                targetOutputsByToi = hier2hierBatch.targetOutputsByToi
+                targetOutputLengthsByToi = hier2hierBatch.targetOutputLengthsByToi
+                targetOutputsByTdolList = hier2hierBatch.targetOutputsByTdolList
 
-                decodedSymbolProbs, decodedSymbols = self.model(
+                decodedSymbolsByTdolList, decodedSymbolsByToi = self.model(
                     hier2hierBatch,
                     collectOutput=calcAccuracy,
                     )
 
                 if calcAccuracy:
                     accuracy = computeAccuracy(
-                                            target_variables,
-                                            target_lengths,
-                                            decodedSymbols,
+                                            targetOutputsByToi,
+                                            targetOutputLengthsByToi,
+                                            decodedSymbolsByToi,
                                             device=self.device)
 
-                    _, beamDecodedSymbols = self.model(
+                    _, beamDecodedSymbolsByToi = self.model(
                                             hier2hierBatch,
                                             beam_count=6,
                                             collectOutput=calcAccuracy,
                                             )
 
                     beamAccuracy = computeAccuracy(
-                                            target_variables,
-                                            target_lengths,
-                                            beamDecodedSymbols,
+                                            targetOutputsByToi,
+                                            targetOutputLengthsByToi,
+                                            beamDecodedSymbolsByToi,
                                             device=self.device)
 
                     count += 1
@@ -82,9 +83,9 @@ class Evaluator(object):
                     beamAccuracy_total += beamAccuracy
 
                 # Evaluation
-                decodedSymbolProbs = decodedSymbolProbs[:, 0:target_variables.shape[1], :]
-                for step, step_output in enumerate(decodedSymbolProbs):
-                    loss.eval_batch(step_output, target_variables[step])
+                assert(len(targetOutputsByTdolList) == len(decodedSymbolsByTdolList))
+                for i, decodedSymbolsByTdol in enumerate(decodedSymbolsByTdolList):
+                    loss.eval_batch(decodedSymbolsByTdol, targetOutputsByTdolList[i])
                     
         if calcAccuracy:
             accuracy_avg = accuracy_total/count

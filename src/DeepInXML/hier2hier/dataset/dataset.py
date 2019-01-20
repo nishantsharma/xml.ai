@@ -107,6 +107,7 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                 savedBatchData.ndfo2Ndtll = torch.LongTensor(processedBatch.ndfo2Ndtll)
                 savedBatchData.targetOutputsByTdol = processedBatch.targetOutputsByTdol
                 savedBatchData.targetOutputLengthsByTdol = processedBatch.targetOutputLengthsByTdol
+                savedBatchData.targetOutputsByTdolList = processedBatch.targetOutputsByTdolList
                 savedBatchData.tdol2Toi = processedBatch.tdol2Toi
                 savedBatchData.toi2Tdol = processedBatch.toi2Tdol
                 savedBatchData.gndtol2Tdol = processedBatch.gndtol2Tdol

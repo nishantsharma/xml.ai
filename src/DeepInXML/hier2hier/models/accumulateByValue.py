@@ -5,9 +5,9 @@ import torch
 from hier2hier.models.moduleBase import ModuleBase
 from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
 
-test=True
-TorchJitDecorator=(lambda x:x) if test else torch.jit.script_method
-class AccumulateByValue(ModuleBase if test else torch.jit.ScriptModule):
+useJit=False
+TorchJitDecorator=torch.jit.script_method if useJit else (lambda x:x)
+class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
     __constants__ = ['mode']
     def __init__(self, mode):
         if mode=="max":
@@ -62,7 +62,7 @@ class AccumulateByValue(ModuleBase if test else torch.jit.ScriptModule):
         retval = []
         start = 0
         for key in range(totalKeyCount):
-            end = start + indexBoundaries[key]
+            end = start + int(indexBoundaries[key])
             toAppend = valuesToAccumulate[start:end]
             if self.mode == 0: # MAX
                 if toAppend.shape[0] != 0:
@@ -72,6 +72,7 @@ class AccumulateByValue(ModuleBase if test else torch.jit.ScriptModule):
             elif self.mode == 1: # SUM
                 toAppend = torch.sum(toAppend, dim=0)
             toAppend = toAppend.view([1] + list(toAppend.shape))
+            # toAppend = toAppend.view([1] + toAppend.shape)
             retval.append(toAppend)
             start=end
 

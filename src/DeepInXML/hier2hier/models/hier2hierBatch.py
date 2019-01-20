@@ -452,6 +452,19 @@ class Hier2hierBatch(object):
         return self.targetOutputLengthsByToi[self.tdol2Toi]
 
     @cached_property_profiler
+    def targetOutputsByTdolList(self):
+        dimSqueezePoints = computeDimSqueezePoints(self.targetOutputLengthsByTdol)
+        targetOutputsByTdol = self.targetOutputsByTdol
+        retval = []
+        for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
+            while True:
+                curIndexLimit = len(retval)
+                retval.append(targetOutputsByTdol[0:sampleIndexLimit, curIndexLimit])
+                if curIndexLimit+1 == outputIndexLimit:
+                    break
+        return retval
+
+    @cached_property_profiler
     def ndfo2Gni(self):
         return list(range(len(self.ndfo2Toi)))
 
@@ -706,7 +719,44 @@ def splitByToi(allVecs, vecIndex2Toi, sampleCount, prefix=""):
         torch.cat(vecList) if vecList else torch.Tensor([])
         for vecList in retval
     ]
+
     return name, retval
+
+def computeDimSqueezePoints(outputLimitsInOrder):
+    """
+    Compute the positions in output symbol computation, where we exclude another batch of trees from
+    further consideration. We do that because the excluded output trees have their symbol computation already
+    completed and need no more computation. Only used during training, when target output lengths are available.
+
+    Input:
+        outputLimitsInOrder: Length of target outputs in decreasing order.
+
+    Output:
+        dimSqueezePoints: List of tuples (outputIndexLimit, sampleIndexLimit)
+            [(oil1, sil1), (oil2, sil2), (oil3, sil3), (oil4, sil4), ]
+            For output indices [0, 1, ..., oil1-1] we use sampleIndexLimit as sil1.
+            For output indices [oil1, oil1+1, ..., oil2-1] we use sampleIndexLimit as sil2.
+            For output indices [oil2, oil2+1, ..., oil3-1] we use sampleIndexLimit as sil3.
+            .
+            .
+            For output indices [oil2ndLast, oil2ndLast+1, ..., oilLast-1] we use sampleIndexLimit as silLast.
+
+    """
+    dimSqueezePoints = []
+    outputLimitsInOrder = [ int(outputLimit) for outputLimit in outputLimitsInOrder ]
+    sampleCount = len(outputLimitsInOrder)
+    curOutputLimit = outputLimitsInOrder[-1]
+
+    dimSqueezePoints.append((curOutputLimit, sampleCount))
+
+    for sampleLimit, outputLimit in enumerate(outputLimitsInOrder[::-1]):
+        if outputLimit == curOutputLimit:
+            continue
+
+        curOutputLimit = outputLimit
+        dimSqueezePoints.append((curOutputLimit, sampleCount - sampleLimit))
+
+    return dimSqueezePoints
 
 
 def batchDataUnitTest(trainer, test_data):

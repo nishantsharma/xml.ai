@@ -278,7 +278,7 @@ class Hier2hier(ModuleBase):
                     )
         else:
             attnReadyTextInfoByTlDLP = torch.zeros([0, self.propagated_info_len])
-    
+
         # Permute back into NDFO.
         propagatedNodeInfoByNdfo = propagatedNodeInfoByNDTlL[ndfo2ndtll]
 
@@ -316,7 +316,7 @@ class Hier2hier(ModuleBase):
             beam_count=None,
             collectOutput=None,
             debugDataStages=False,
-            max_output_len=None,
+            clip_output_len=None,
     ):
         if debugDataStages:
             dataStagesToDebug = []
@@ -441,14 +441,11 @@ class Hier2hier(ModuleBase):
                 hier2hierBatch.sampleCount
             ))
 
-        if max_output_len is None:
-            max_output_len = hier2hierBatch.targetOutputLengthsByTdol[0]
         # Decode attnReadyEncodedPositions to obtain the desired output.
         (
-            outputSymbolTensors,
+            outputSymbolsByTdolList,
             outputSymbols,
             teacherForcedSelections,
-            decoderTestTensors,
         ) = self.outputDecoder(
             hier2hierBatch.sampleCount,
             hier2hierBatch.posNbrhoodGraphByGndtol,
@@ -462,13 +459,18 @@ class Hier2hier(ModuleBase):
             tensorBoardHook,
             collectOutput=collectOutput,
             beam_count=beam_count,
-            max_output_len=max_output_len,
+            clip_output_len=clip_output_len,
             debugPack=debugPack)
         if debugDataStages:
-            # No Change.
-            dataStagesToDebug.append(("outputSymbolTensors", outputSymbolTensors))
+            for symIndex, outputSymbolsByTdol in enumerate(outputSymbolsByTdolList):
+                dataStagesToDebug.append(splitByToi(
+                    outputSymbolsByTdol,
+                    hier2hierBatch.tdol2Toi,
+                    hier2hierBatch.sampleCount,
+                    "{0}@".format(symIndex),
+                ))
 
         if debugDataStages:
             return dataStagesToDebug
         else:
-            return outputSymbolTensors, outputSymbols
+            return outputSymbolsByTdolList, outputSymbols

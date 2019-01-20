@@ -12,7 +12,7 @@ from .attentionSpotlight import AttentionSpotlight
 from .beamSearch import BeamSearch
 from hier2hier.util import (onehotencode, checkNans, blockProfiler,
                             methodProfiler, lastCallProfile)
-from hier2hier.models.hier2hierBatch import splitByToi
+from hier2hier.models.hier2hierBatch import splitByToi, computeDimSqueezePoints
 from pympler import asizeof
 
 import torch.nn.functional as F
@@ -215,43 +215,6 @@ class OutputDecoder(ModuleBase):
         return self.attentionDecoder(self.attentionPreDecoder(attentionInput).view(sampleCount, self.max_node_count))
 
     @methodProfiler
-    def computeDimSqueezePoints(self, outputLimitsInOrder):
-        """
-        Compute the positions in output symbol computation, where we exclude another batch of trees from
-        further consideration. We do that because the excluded output trees have their symbol computation already
-        completed and need no more computation. Only used during training, when target output lengths are available.
-
-        Input:
-            outputLimitsInOrder: Length of target outputs in decreasing order.
-
-        Output:
-            dimSqueezePoints: List of tuples (outputIndexLimit, sampleIndexLimit)
-                [(oil1, sil1), (oil2, sil2), (oil3, sil3), (oil4, sil4), ]
-                For output indices [0, 1, ..., oil1-1] we use sampleIndexLimit as sil1.
-                For output indices [oil1, oil1+1, ..., oil2-1] we use sampleIndexLimit as sil2.
-                For output indices [oil2, oil2+1, ..., oil3-1] we use sampleIndexLimit as sil3.
-                .
-                .
-                For output indices [oil2ndLast, oil2ndLast+1, ..., oilLast-1] we use sampleIndexLimit as silLast.
-
-        """
-        dimSqueezePoints = []
-        outputLimitsInOrder = [ int(outputLimit) for outputLimit in outputLimitsInOrder ]
-        sampleCount = len(outputLimitsInOrder)
-        curOutputLimit = outputLimitsInOrder[-1]
-
-        dimSqueezePoints.append((curOutputLimit, sampleCount))
-
-        for sampleLimit, outputLimit in enumerate(outputLimitsInOrder[::-1]):
-            if outputLimit == curOutputLimit:
-                continue
-
-            curOutputLimit = outputLimit
-            dimSqueezePoints.append((curOutputLimit, sampleCount - sampleLimit))
-
-        return dimSqueezePoints
-
-    @methodProfiler
     def forward(self,
             sampleCount,
             posNbrhoodGraphByGndtol,
@@ -266,16 +229,19 @@ class OutputDecoder(ModuleBase):
             attentionSpotLight=None,
             collectOutput=None,
             beam_count=None,
-            max_output_len=None,
+            clip_output_len=None,
             debugPack=None,
         ):
         if debugPack is not None:
             (dataStagesToDebug, hier2hierBatch) = debugPack
 
-        if max_output_len is not None:
-            max_output_len=max(self.max_output_len, max_output_len)
+        if targetOutputLengthsByTdol is not None:
+            max_output_len = int(max(targetOutputLengthsByTdol))
         else:
-            max_output_len=self.max_output_len
+            max_output_len = self.max_output_len
+
+        if clip_output_len is not None:
+            max_output_len=min(max_output_len, clip_output_len)
 
         # Dropout parts of data for robustness.
         attnReadyVecsByGndtol = self.input_dropout(attnReadyVecsByGndtol)
@@ -303,7 +269,7 @@ class OutputDecoder(ModuleBase):
         with blockProfiler("ProcessPreLoop"):
             if self.training:
                 # Get inverse of the TL order.
-                dimSqueezePoints = self.computeDimSqueezePoints(targetOutputLengthsByTdol)
+                dimSqueezePoints = computeDimSqueezePoints(targetOutputLengthsByTdol)
             else:
                 dimSqueezePoints = [(max_output_len, sampleCount)]
 
@@ -336,7 +302,7 @@ class OutputDecoder(ModuleBase):
                 teacherForcedSelections = None
 
             # Init output vars.
-            outputSymbolTensors = [ curSymbolTensor ]
+            outputSymbolsByTdolList = [ curSymbolTensor ]
             if collectOutput:
                 outputSymbols = [ [ self.sos_id for _ in range(sampleCount) ] ]
             else:
@@ -384,7 +350,7 @@ class OutputDecoder(ModuleBase):
 
                 while True:
                     # Current symbol index can be determined by looking at output lists.
-                    symbolIndex = len(outputSymbolTensors)
+                    symbolIndex = len(outputSymbolsByTdolList)
                     if symbolIndex == outputIndexLimit:
                         # We are crossing output index limit. So, this loop is over.
                         break
@@ -442,13 +408,11 @@ class OutputDecoder(ModuleBase):
                     if debugPack is not None:
                         # Use ndfo2Toi partition.
                         dataStagesToDebug.append(splitByToi(
-                            curGruState,
+                            curGruState.permute(1,0,2),
                             hier2hierBatch.tdol2Toi,
                             hier2hierBatch.sampleCount,
                             prefix="{0}@".format(symbolIndex),
                         ))
-                        if curGruState.shape[0] == 0:
-                            import pdb;pdb.set_trace()
 
                     # Cycle RNN state.
                     with blockProfiler("GRUCELL2"):
@@ -461,7 +425,7 @@ class OutputDecoder(ModuleBase):
                     with blockProfiler("SYMBOL-DECODE"):
                         generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
                         generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.output_vocab))
-                        outputSymbolTensors.append(generatedSymbolTensor)
+                        outputSymbolsByTdolList.append(generatedSymbolTensor)
 
                     if debugPack is not None:
                         # Use ndfo2Toi partition.
@@ -502,7 +466,7 @@ class OutputDecoder(ModuleBase):
                         curSymbolTensor = generatedSymbolTensor
 
         with blockProfiler("ProcessPostLoop"):
-            symbolColumnsCount = len(outputSymbolTensors)
+            symbolColumnsCount = len(outputSymbolsByTdolList)
             if collectOutput:
                 outputSymbolsTransposed = [[] for _ in range(sampleCount)]
                 for curSymbolColumn in outputSymbols:
@@ -510,46 +474,8 @@ class OutputDecoder(ModuleBase):
                         outputSymbolsTransposed[tdol2Toi[j]].append(curSymbol)
                 outputSymbols = outputSymbolsTransposed
 
-            # Pad symbol tensor columns to include pad symbols.
-            padTensor = torch.tensor([onehotencode(len(self.output_vocab), self.pad_id)], device=self.device)
-            for i, curSymbolTensorColumn in enumerate(outputSymbolTensors):
-                paddingNeeded = sampleCount-len(curSymbolTensorColumn)
-                if paddingNeeded:
-                    outputSymbolTensors[i] = torch.cat(
-                        [curSymbolTensorColumn]
-                        + [ padTensor for _ in range(paddingNeeded)]
-                    )
-
-            outputSymbolTensors = torch.cat(
-                [
-                    outputSymbolTensor.view([sampleCount, 1, len(self.output_vocab)])
-                    for outputSymbolTensor in outputSymbolTensors
-                ],
-                1 # Concat along second dimension.
-            )
-
-            # During training, we permute the columns
-            if self.training:
-                outputSymbolTensors = torch.index_select(outputSymbolTensors, 0, toi2Tdol)
-
-            if self.runtests:
-                padTensorColumn = torch.cat([padTensor.view(1, 1, -1) for _ in range(sampleCount)])
-                decoderTestTensors = torch.cat(
-                    [
-                        outputSymbolTensors
-                    ]
-                    +
-                    [
-                        padTensorColumn
-                        for _ in range(max_output_len - symbolColumnsCount)
-                    ],
-                    -2
-                )
-            else:
-                decoderTestTensors = None
-
-            checkNans(outputSymbolTensors)
-            return outputSymbolTensors, outputSymbols, teacherForcedSelections, decoderTestTensors
+            checkNans(outputSymbolsByTdolList)
+            return outputSymbolsByTdolList, outputSymbols, teacherForcedSelections
 
     @methodProfiler
     def beamSearch(self,

@@ -517,16 +517,15 @@ class SupervisedTrainer(object):
     @methodProfiler
     def _train_batch(self, hier2hierBatch, calcAccuracy=False):
         with blockProfiler("Input Forward Propagation"):
-            decodedSymbolProbs, decodedSymbols = self.model(
+            decodedSymbolsByTdolList, decodedSymbols = self.model(
                                     hier2hierBatch,
                                     self.tensorBoardHook,
                                     collectOutput=calcAccuracy,
                                     )
-
-        target_variable = hier2hierBatch.targetOutputsByToi
-        target_lengths = hier2hierBatch.targetOutputLengthsByToi
         if calcAccuracy:
-            accuracy = computeAccuracy(target_variable, target_lengths, decodedSymbols, device=self.device)
+            targetOutputsByToi = hier2hierBatch.targetOutputsByToi
+            targetOutputLengthsByToi = hier2hierBatch.targetOutputLengthsByToi
+            accuracy = computeAccuracy(targetOutputsByToi, targetOutputLengthsByToi, decodedSymbols, device=self.device)
             print("Batch Accuracy {0}".format(accuracy))
             _, beamDecodedSymbols = self.model(
                                 hier2hierBatch,
@@ -534,15 +533,17 @@ class SupervisedTrainer(object):
                                 collectOutput=calcAccuracy,
                                 tensorBoardHook=self.tensorBoardHook,
                                 )
-            beamAccuracy = computeAccuracy(target_variable, target_lengths, beamDecodedSymbols, device=self.device)
+            beamAccuracy = computeAccuracy(targetOutputsByToi, targetOutputLengthsByToi, beamDecodedSymbols, device=self.device)
         else:
             accuracy, beamAccuracy = None, None
 
         with blockProfiler("Batch Loss Calculation"):
             # Get loss
             self.loss.reset()
-            n = target_variable.numel()
-            self.loss.eval_batch(decodedSymbolProbs.view(n, -1), target_variable.view(n,))
+            targetOutputsByTdolList = hier2hierBatch.targetOutputsByTdolList
+            assert(len(targetOutputsByTdolList) == len(decodedSymbolsByTdolList))
+            for i, decodedSymbolsByTdol in enumerate(decodedSymbolsByTdolList):
+                self.loss.eval_batch(decodedSymbolsByTdol, targetOutputsByTdolList[i])
 
         with blockProfiler("Reset model gradient"):
             # Backward propagation
