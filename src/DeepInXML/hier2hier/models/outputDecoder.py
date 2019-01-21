@@ -267,7 +267,7 @@ class OutputDecoder(ModuleBase):
                 beam_count)
 
         with blockProfiler("ProcessPreLoop"):
-            if self.training:
+            if targetOutputLengthsByTdol is not None:
                 # Get inverse of the TL order.
                 dimSqueezePoints = computeDimSqueezePoints(targetOutputLengthsByTdol)
             else:
