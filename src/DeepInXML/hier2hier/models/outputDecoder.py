@@ -27,7 +27,8 @@ class OutputDecoder(ModuleBase):
             max_output_len,
             sos_id,
             eos_id,
-            spotlightThreshold,
+            enableSpotlight=False,
+            spotlightThreshold=0.001,
             teacher_forcing_ratio=0,
             input_dropout_p=0,
             dropout_p=0,
@@ -62,6 +63,7 @@ class OutputDecoder(ModuleBase):
         self.attentionSpotlight = AttentionSpotlight(
             attentionSubspaceVecLen,
             spotlightThreshold,
+            checkGraph=enableSpotlight,
             )
 
         # Network for symbol decoding.
@@ -379,6 +381,7 @@ class OutputDecoder(ModuleBase):
                             beamMode=False,
                             debugPack=None,#debugPack,
                         )
+                    print("Selected indices: {0}".format(sli2Gndtol.shape[0]))
 
                     if debugPack is not None:
                         # Use ndfo2Toi partition.

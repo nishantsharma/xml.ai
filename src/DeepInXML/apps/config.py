@@ -47,6 +47,7 @@ modelArgsGlobalDefaults = {
     "learning_rate": 0.001,
     "clip_gradient": None,
     "disable_batch_norm": None,
+    "enableSpotlight": True,
     "spotlightThreshold": 0.001,
 }
 
@@ -200,6 +201,10 @@ def loadConfig(mode):
     parser.add_argument("--disable_batch_norm", type = str2bool,
                         default = modelArgsDefaults.disable_batch_norm,
                         help="Disable batch norm. Needed for running some tests.")
+    parser.add_argument("--enableSpotlight", type = str2bool,
+                        default = modelArgsDefaults.enableSpotlight,
+                        help="Whether to enable spotlight, which is designed to optimize"
+                            + " search.")
     parser.add_argument("--spotlightThreshold", type = float,
                         default = modelArgsDefaults.spotlightThreshold,
                         help="Threshold used to identify encoder positions to be considered"
