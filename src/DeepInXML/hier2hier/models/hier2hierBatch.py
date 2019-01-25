@@ -11,7 +11,7 @@ from attrdict import AttrDict
 import torch
 import torch.nn.utils.rnn as rnn
 
-from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile
+from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile, AppMode
 from hier2hier.dataset import Hier2HierIterator
 
 class cached_property_profiler(object):
@@ -769,7 +769,7 @@ def batchDataUnitTest(trainer, test_data):
         sort=False, shuffle=True, sort_within_batch=False,
         sort_key=lambda x: len(x.tgt),
         repeat=False)
-    batch_generator = batch_iterator.__iter__(unitTesting=True)
+    batch_generator = batch_iterator.__iter__(mode=AppMode.Test)
     test_data_batch = list(batch_generator)[0]
 
     # Vocabs.

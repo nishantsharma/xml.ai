@@ -146,23 +146,28 @@ class SupervisedTrainer(object):
                 modelArgs.clip_gradient = None
 
             model.max_output_len = modelArgs.max_output_len
-            model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
+            if hasattr(model, "nodeInfoEncoder"):
+                model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
             model.outputDecoder.max_output_len = modelArgs.max_output_len
             model.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
             model.outputDecoder.runtests = self.debug.runtests
             model.debug = self.debug
 
             # Fixup nodeInfoPropagator.input_dropout.
-            if (not hasattr(model.nodeInfoPropagator, "input_dropout")
-                    or (self.modelArgs.input_dropout_p != None
-                        and model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p)):
-                model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
+            if hasattr(model, "nodeInfoPropagator"):
+                if (not hasattr(model.nodeInfoPropagator, "input_dropout")
+                    or (
+                        self.modelArgs.input_dropout_p != None
+                        and model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p
+                    )
+                ):
+                    model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
 
-            # Fixup nodeInfoPropagator.dropout.
-            if (not hasattr(model.nodeInfoPropagator, "dropout")
-                    or (self.modelArgs.dropout_p != None
-                        and model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p)):
-                model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
+                # Fixup nodeInfoPropagator.dropout.
+                if (not hasattr(model.nodeInfoPropagator, "dropout")
+                        or (self.modelArgs.dropout_p != None
+                            and model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p)):
+                    model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
 
             # Fixup outputDecoder.input_dropout.
             if (not hasattr(model.outputDecoder, "input_dropout")
@@ -180,10 +185,12 @@ class SupervisedTrainer(object):
 
             # Model behaves very differently during test time when track_running_stats is true.
             # Saved model had it false. Fixing here.
-            if hasattr(model.nodeInfoEncoder.nodeTextEncoder, "textTensorBatchNorm"):
-                model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
-            if hasattr(model.nodeInfoPropagator, "batchNormPropagatedInfo"):
-                model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
+            if hasattr(model, "nodeInfoEncoder"):
+                if hasattr(model.nodeInfoEncoder.nodeTextEncoder, "textTensorBatchNorm"):
+                    model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
+            if hasattr(model, "nodeInfoPropagator"):
+                if hasattr(model.nodeInfoPropagator, "batchNormPropagatedInfo"):
+                    model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
 
             # A walk around to set optimizing parameters properly
             resume_optim = optimizer.optimizer
@@ -256,7 +263,7 @@ class SupervisedTrainer(object):
 
                 indexRange = range(1, int(textLength))
             else:
-                indexRange = range(1, max_output_len)
+                indexRange = range(1, min(max_output_len, len(textOutput)))
 
             decodedOutput = ""
             foundEos = False
@@ -288,7 +295,7 @@ class SupervisedTrainer(object):
             dataset=training_data, batch_size=appConfig.batch_size,
             sort=False, sort_within_batch=False,
             repeat=False)
-        batch_generator = batch_iterator.__iter__()
+        batch_generator = batch_iterator.__iter__(mode=AppMode.Train)
 
 
         nodeTagSet = set()

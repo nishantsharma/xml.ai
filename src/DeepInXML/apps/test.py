@@ -118,7 +118,7 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
             device=device,
             repeat=False,
             )
-        batch_generator = batch_iterator.__iter__(unitTesting=True)
+        batch_generator = batch_iterator.__iter__(mode=appConfig.mode)
         test_data_batch = list(batch_generator)[0]
 
         dataDebugStages = trainer.model(test_data_batch, debugDataStages=True)

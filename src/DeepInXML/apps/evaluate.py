@@ -55,18 +55,18 @@ test_batch_iterator = Hier2HierIterator(
     device=device, repeat=False)
 
 # In a loop, run the trained model over test dataset.
-for i, batch in enumerate(test_batch_iterator):
+for i, batch in enumerate(test_batch_iterator.__iter__(AppMode.Evaluate)):
     tree_inputs = batch.src
     tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
 
     try:
-        _, predicted_outputs = h2hModel(batch.src, beam_count=appConfig.beam_count)
+        _, predicted_outputs = h2hModel(batch, beam_count=appConfig.beam_count)
         predicted_text = trainer.decodeOutput(predicted_outputs)
     except ValueError as v:
         predicted_text = [v for _ in range(appConfig.batch_size)]
 
     try:
-        expected_outputs, expected_lengths = batch.tgt
+        expected_outputs, expected_lengths = batch.targetOutputsByToi, batch.targetOutputLengthsByToi
         expected_text = trainer.decodeOutput(expected_outputs, expected_lengths)
     except ValueError as v:
         expected_text_outputs = [v for _ in range(appConfig.batch_size)]

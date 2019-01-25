@@ -6,7 +6,7 @@ from torchtext.vocab import Vocab
 
 import xml.etree.ElementTree as ET
 from .randomXml import generateXml
-from hier2hier.util import invertPermutation, methodProfiler, lastCallProfile
+from hier2hier.util import invertPermutation, methodProfiler, lastCallProfile, AppMode
 
 class Hier2HierExample(torchtext.data.Example):
     def __init__(self, inXml, outStr):
@@ -82,7 +82,7 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
         super().__init__(*argc, **kargv)
 
     @methodProfiler
-    def __iter__(self, unitTesting=False):
+    def __iter__(self, mode=AppMode.Generate):
         if self.savedBatches is None:
             self.savedBatches = []
             for batch in super().__iter__():
@@ -118,7 +118,7 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                 savedBatchData.targetOutputLengthsByToi = processedBatch.targetOutputLengthsByToi
 
                 # Test attrs
-                if unitTesting:
+                if mode == AppMode.Test:
                     savedBatchData.ndfo2Node = processedBatch.ndfo2Node
                     savedBatchData.attrsByAdfo = processedBatch.attrsByAdfo
                     savedBatchData.avdl2Adfo = processedBatch.avdl2Adfo
@@ -137,6 +137,9 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                     savedBatchData.ndtlp2Toi2 = processedBatch.ndtlp2Toi2
                     savedBatchData.gni2Toi = processedBatch.gni2Toi
                     savedBatchData.gndtol2Toi = processedBatch.gndtol2Toi
+                elif mode == AppMode.Evaluate:
+                    savedBatchData.src = processedBatch.torchBatch.src
+
                 self.savedBatches.append(savedBatchData)
 
         for processedBatch in self.savedBatches:
