@@ -1,6 +1,5 @@
 from __future__ import unicode_literals, print_function, division
-import unicodedata
-import string, re, random, sys, copy
+import unicodedata, string, re, random, sys, copy, math
 from orderedattrdict import AttrDict
 
 import torch
@@ -61,10 +60,18 @@ class OutputDecoder(ModuleBase):
 
         # Module for decoding attention and moving spotlight.
         self.attentionSpotlight = AttentionSpotlight(
-            attentionSubspaceVecLen,
             spotlightThreshold,
             checkGraph=enableSpotlight,
             )
+        posVecsProjectorForAttention = torch.randn(propagated_info_len, attentionSubspaceVecLen, device=self.device)
+        posVecsProjectorForAttention /= math.sqrt(propagated_info_len)
+        posVecsProjectorForAttention.unsqueeze(0)
+        self.posVecsProjectorForAttention = nn.Parameter(posVecsProjectorForAttention)
+
+        gruOutputProjectorForAttention = torch.randn(self.output_decoder_state_width, attentionSubspaceVecLen, device=self.device)
+        gruOutputProjectorForAttention /= math.sqrt(self.output_decoder_state_width)
+        gruOutputProjectorForAttention.unsqueeze(0)
+        self.gruOutputProjectorForAttention = nn.Parameter(gruOutputProjectorForAttention)
 
         # Network for symbol decoding.
         self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(output_vocab))
@@ -178,7 +185,6 @@ class OutputDecoder(ModuleBase):
                     maxSymbolIndex = max(maxSymbolIndex, symbolIndex)
                     break
 
-
                 ###################################################################
                 ##### LOOP ITERATION COMPLETE. Now preping for next iteration #####
                 ###################################################################
@@ -221,7 +227,7 @@ class OutputDecoder(ModuleBase):
             sampleCount,
             posNbrhoodGraphByGndtol,
             initSpotlight,
-            attnReadyVecsByGndtol,
+            posEncodedVecsByGndtol,
             targetOutputsByTdol,
             targetOutputLengthsByTdol,
             gndtol2Tdol,
@@ -245,13 +251,13 @@ class OutputDecoder(ModuleBase):
         if clip_output_len is not None:
             max_output_len=min(max_output_len, clip_output_len)
 
-        # Dropout parts of data for robustness.
-        attnReadyVecsByGndtol = self.input_dropout(attnReadyVecsByGndtol)
+        # Dropout parts of data for robustness.e
+        posEncodedVecsByGndtol = self.input_dropout(posEncodedVecsByGndtol)
 
         if debugPack is not None:
             # Use ndfo2Toi partition.
             dataStagesToDebug.append(splitByToi(
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 hier2hierBatch.gndtol2Toi,
                 hier2hierBatch.sampleCount
             ))
@@ -263,7 +269,7 @@ class OutputDecoder(ModuleBase):
             return self.beamSearch(
                 sampleCount,
                 posNbrhoodGraphByGndtol,
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 gndtol2Tdol,
                 tdol2Toi,
                 beam_count)
@@ -310,10 +316,15 @@ class OutputDecoder(ModuleBase):
             else:
                 outputSymbols = None
 
+            attnReadyVecsByGndtol = torch.matmul(
+                posEncodedVecsByGndtol.unsqueeze(1),
+                self.posVecsProjectorForAttention,
+            ).squeeze(1)
+
         if debugPack is not None:
             # Use ndfo2Toi partition.
             dataStagesToDebug.append(splitByToi(
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 hier2hierBatch.gndtol2Toi,
                 hier2hierBatch.sampleCount
             ))
@@ -368,15 +379,21 @@ class OutputDecoder(ModuleBase):
 
                     # Compute next attention.
                     with blockProfiler("ATTENTION-DECODE"):
+                        attnReadyGruOutput = torch.matmul(
+                            curGruOutput.unsqueeze(1),
+                            self.gruOutputProjectorForAttention,
+                        ).squeeze(1)
+
                         (
                             sli2Gndtol,
                             attnReadyInfoCollapsedByTdol
                         ) = self.attentionSpotlight(
                             posNbrhoodGraphByGndtol,
                             attnReadyVecsByGndtol,
+                            posEncodedVecsByGndtol,
                             sli2Gndtol,
                             gndtol2Tdol,
-                            curGruOutput,
+                            attnReadyGruOutput,
                             sampleIndexLimit,
                             beamMode=False,
                             debugPack=None,#debugPack,
@@ -484,7 +501,7 @@ class OutputDecoder(ModuleBase):
     def beamSearch(self,
                 sampleCount,
                 posNbrhoodGraphByGndtol,
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 gndtol2Tdol,
                 tdoil2Toi,
                 beam_count,
@@ -529,7 +546,7 @@ class OutputDecoder(ModuleBase):
                 attnReadyInfoCollapsedByTdol,
             ) = self.attentionSpotlight(
                 posNbrhoodGraphByGndtol,
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 sli2Gndtol,
                 gndtol2Tdol,
                 prevGruOutput,

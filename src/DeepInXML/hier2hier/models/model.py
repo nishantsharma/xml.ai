@@ -426,18 +426,18 @@ class Hier2hier(ModuleBase):
             ))
 
         # Concatenate all attention ready infos.
-        attnReadyVecsByGni = torch.cat([
+        posEncodedVecsByGni = torch.cat([
             attnReadyNodeInfoByNdfo,
             attnReadyAttrInfoByAvdl,
             attnReadyTextInfoByTtDLP.data,
             attnReadyTailInfoByTlDLP.data,
         ])
-        attnReadyVecsByGndtol = attnReadyVecsByGni[hier2hierBatch.gndtol2Gni]
+        posEncodedVecsByGndtol = posEncodedVecsByGni[hier2hierBatch.gndtol2Gni]
 
         if debugDataStages:
             # Use gni2Toi.
             dataStagesToDebug.append(splitByToi(
-                attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 hier2hierBatch.gndtol2Toi,
                 hier2hierBatch.sampleCount
             ))
@@ -451,7 +451,7 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.sampleCount,
             hier2hierBatch.posNbrhoodGraphByGndtol,
             hier2hierBatch.fullSpotlight,
-            attnReadyVecsByGndtol,
+            posEncodedVecsByGndtol,
             hier2hierBatch.targetOutputsByTdol,
             hier2hierBatch.targetOutputLengthsByTdol,
             hier2hierBatch.gndtol2Tdol,

@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 from hier2hier.models.moduleBase import ModuleBase
-from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
+from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel, checkNans
 from hier2hier.models.hier2hierBatch import splitByToi
 from hier2hier.models.accumulateByValue import AccumulateByValue, AccumulateSumByValue, AccumulateMaxByValue
 from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
@@ -30,46 +30,43 @@ class AttentionSpotlight(ModuleBase):
         PrevSLI_x_SOHTDOL, SLI_x_SOHTDOL: SLI X SPARSE 1 HOT TDOL.
     """
     def __init__(self,
-                attentionSubspaceVecLen,
-                cullThreshold=None,
+                spotlightThreshold=None,
                 headCount=1,
                 device=None,
                 checkGraph=True,
     ):
         super().__init__(device)
         self.checkGraph = checkGraph
-        self.attentionSubspaceVecLen = attentionSubspaceVecLen
-        self.cullThreshold = cullThreshold
+        self.spotlightThreshold = spotlightThreshold
 
         # Network for attention model between query and attention ready inputs.
-        self.attentionCorrelation = nn.Bilinear(
-            attentionSubspaceVecLen,
-            attentionSubspaceVecLen,
-            headCount,
-        )
         self.accumulateSumByValue = AccumulateSumByValue()
         self.accumulateMaxByValue = AccumulateMaxByValue()
         self.spotNeighborsExplorer = SpotNeighborsExplorer()
 
     def reset_parameters(self, device):
-        self.attentionCorrelation.reset_parameters()
+        pass
 
     @methodProfiler
     def forward(self,
                 posNbrhoodGraphByGndtol,
                 attnReadyVecsByGndtol,
+                posEncodedVecsByGndtol,
                 prevSli2Gndtol,
                 gndtol2Tdol,
                 curQueryVec,
                 treeCount,
                 beamMode,
-                cullThreshold=None,
+                spotlightThreshold=None,
                 debugPack=None,
     ):
         """
         Inputs:
             attnReadyVecsByGndtol:
                 Shape: graphSize X attnReadyVecLen
+                Data: Vectors used to compute attention factors.
+            posEncodedVecsByGndtol:
+                Shape: graphSize X posENcodedVecLen
                 Data: Attention ready vectors representing items that can be attended to.
             prevSli2Gndtol:
                 Shape: len(prevSLI)
@@ -98,8 +95,8 @@ class AttentionSpotlight(ModuleBase):
         if debugPack is not None:
             (dataStagesToDebug, hier2hierBatch) = debugPack
 
-        if cullThreshold is None:
-            cullThreshold = self.cullThreshold
+        if spotlightThreshold is None:
+            spotlightThreshold = self.spotlightThreshold
 
         prevSli2Tdol = gndtol2Tdol[prevSli2Gndtol]
         attentionFactorsByPrevSLI = self.computeAttentionFactors(
@@ -120,8 +117,6 @@ class AttentionSpotlight(ModuleBase):
         sliDimension = 1 if beamMode else 0
 
         if self.checkGraph:
-            if debugPack is not None and len(dataStagesToDebug) == 18:
-                import pdb;pdb.set_trace()
             maxAttentionFactorByTDOL = self.accumulateMaxByValue.wrapper(
                 attentionFactorsByPrevSLI,
                 gndtol2Tdol[prevSli2Gndtol],
@@ -184,7 +179,7 @@ class AttentionSpotlight(ModuleBase):
                     discoveredNewGndtol,
                     attentionFactorsForNewGndtol,
                     maxAttentionFactorByTDOL,
-                    cullThreshold,
+                    spotlightThreshold,
                 )
                 if retainedIndices is False:
                     # No index retained.
@@ -213,7 +208,7 @@ class AttentionSpotlight(ModuleBase):
                     discoveredNewGndtol,
                     attentionFactorsForNewGndtol,
                     maxAttentionFactorByTDOL,
-                    cullThreshold,
+                    spotlightThreshold,
                 )
                 if retainedIndices is False:
                     # No index retained.
@@ -283,21 +278,21 @@ class AttentionSpotlight(ModuleBase):
         )
 
         # Get vecs by SLI.
-        attnReadyVecsBySli = attnReadyVecsByGndtol[curSli2Gndtol]
+        posEncodedVecsBySli = posEncodedVecsByGndtol[curSli2Gndtol]
         if beamMode:
             # Add a beam dimension to attnReadyVecsBySli.
-            attnReadyVecsBySli = attnReadyVecsBySli.view([1] + list(attnReadyVecsBySli.shape))
+            posEncodedVecsBySli = posEncodedVecsBySli.unsqueeze(0)
 
         # Use factors to obtain linear combination of cur SLI subset attnReadyVecs.
-        normalizedAttentionFactorsByCurSli = (
-            attnReadyVecsBySli
+        normalizedAttentionVectorsByCurSli = (
+            posEncodedVecsBySli
             *
             normalizedAttentionFactorsByCurSli
         )
 
         # Accumulate along SLI dimension.
-        attnReadyInfoCollapsedByTdol = self.accumulateSumByValue.wrapper(
-            normalizedAttentionFactorsByCurSli,
+        posEncodedVecsCollapsedByTdol = self.accumulateSumByValue.wrapper(
+            normalizedAttentionVectorsByCurSli,
             gndtol2Tdol[curSli2Gndtol],
             treeCount,
             beamMode=beamMode,
@@ -305,9 +300,11 @@ class AttentionSpotlight(ModuleBase):
 
         if beamMode:
             # Switch dims to make shape beamCount X tdolCount.
-            attnReadyInfoCollapsedByTdol = attnReadyInfoCollapsedByTdol.permute([1, 0, -1])
+            posEncodedVecsCollapsedByTdol = posEncodedVecsCollapsedByTdol.permute([1, 0, -1])
 
-        return curSli2Gndtol, attnReadyInfoCollapsedByTdol
+        checkNans(posEncodedVecsCollapsedByTdol)
+
+        return curSli2Gndtol, posEncodedVecsCollapsedByTdol
 
     @methodProfiler
     def computeAttentionFactors(self,
@@ -348,10 +345,14 @@ class AttentionSpotlight(ModuleBase):
             # Reshape curQueryVec as beamCount X sliCount X queryVecLen
             curQueryVec = curQueryVec.permute(1, 0, 2)
 
-        preExpAttnFactors = self.attentionCorrelation(
-            attnReadyVecs[...,0:self.attentionSubspaceVecLen],
-            curQueryVec[...,0:self.attentionSubspaceVecLen],
-        )
+        preExpAttnFactors = torch.matmul(
+            attnReadyVecs.unsqueeze(1),
+            curQueryVec.unsqueeze(2),
+        ).squeeze(1)
+
+        # Clamp between range -50 to +50.
+        preExpAttnFactors = torch.clamp(preExpAttnFactors, max=20)
+
         expAttnFactors = torch.exp(preExpAttnFactors)
         assert(expAttnFactors.shape[-1] == 1)
         expAttnFactors = expAttnFactors.view(beamCount, -1) if beamMode else expAttnFactors.view(-1)
@@ -365,7 +366,7 @@ class AttentionSpotlight(ModuleBase):
         discoveredGndtol,
         attentionFactors,
         maxAttentionFactorByTDOL,
-        cullThreshold,
+        spotlightThreshold,
     ):
         """
             Inputs
@@ -401,7 +402,7 @@ class AttentionSpotlight(ModuleBase):
             maxAttentionFactorToUse = maxAttentionFactorToUse.permute(1, 0)
 
         # Purpose of comparison is to cull small(1/1000) factors.
-        maxAttentionFactorToUse *= cullThreshold
+        maxAttentionFactorToUse *= spotlightThreshold
 
         # Compare.
         # Shape: beamCount X SliCount.
@@ -508,10 +509,11 @@ def attentionSpotlightUnitTest():
     results = attentionSpotlight(
         posNbrhoodGraphByGndtol,
         attnReadyVecsByGndtol,
+        posEncodedVecsByGndtol,
         prevSli2Gndtol,
         gndtol2Tdol,
         queryVec,
         len(treeIndex2NodeIndex2NbrIndices),
         False,
-        cullThreshold=0.5,
+        spotlightThreshold=0.5,
     )

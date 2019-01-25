@@ -18,6 +18,11 @@ from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import str2bool, str2bool3, levelDown, AppMode
 
+appConfigGlobalDefaults = {
+    # AppConfig defaults.
+    "checkpoint_every": 100,
+}
+
 # Overridden by domain specific defaults.
 modelArgsGlobalDefaults = {
     # XML Schema limits.
@@ -85,6 +90,7 @@ def loadConfig(mode):
     # Get domain defaults.
     domainModule = import_module("domains." + basicAppConfig.domain)
     modelArgsDefaults = AttrDict({ **modelArgsGlobalDefaults, **domainModule.modelArgsDefaults})
+    appConfigDefaults = AttrDict({ **appConfigGlobalDefaults, **domainModule.appConfigDefaults})
 
     # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
     parser = basic_arguments_parser(True)
@@ -95,7 +101,7 @@ def loadConfig(mode):
                             help="Number of times to repeat test.")
 
     # Domain customizable load/store settings.
-    parser.add_argument("--checkpoint_every", type = int, default = 100,
+    parser.add_argument("--checkpoint_every", type = int, default = appConfigDefaults.checkpoint_every,
                         help="Number of epochs after which we take a checkpoint.")
     parser.add_argument("--input_select_percent", type = float, default = None,
                         help="Percentage of inputs actually to be selected for training. This helps in training"

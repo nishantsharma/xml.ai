@@ -17,7 +17,7 @@ from hier2hier.models import Hier2hier
 from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, computeAccuracy,
                             summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode
+from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode, checkNans
 
 
 class SupervisedTrainer(object):
@@ -144,6 +144,12 @@ class SupervisedTrainer(object):
                 modelArgs.clip_gradient = self.modelArgs.clip_gradient
             elif not hasattr(modelArgs, "clip_gradient"):
                 modelArgs.clip_gradient = None
+            if self.modelArgs.enableSpotlight is not None:
+                modelArgs.enableSpotlight = self.modelArgs.enableSpotlight
+                model.outputDecoder.attentionSpotlight.checkGraph = modelArgs.enableSpotlight
+            if self.modelArgs.spotlightThreshold is not None:
+                modelArgs.spotlightThreshold = self.modelArgs.spotlightThreshold
+                model.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
 
             model.max_output_len = modelArgs.max_output_len
             if hasattr(model, "nodeInfoEncoder"):
@@ -192,7 +198,7 @@ class SupervisedTrainer(object):
                 if hasattr(model.nodeInfoPropagator, "batchNormPropagatedInfo"):
                     model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
 
-            # A walk around to set optimizing parameters properly
+            # A work around to set optimizing parameters properly
             resume_optim = optimizer.optimizer
             defaults = resume_optim.param_groups[0]
             defaults.pop('params', None)
@@ -295,8 +301,7 @@ class SupervisedTrainer(object):
             dataset=training_data, batch_size=appConfig.batch_size,
             sort=False, sort_within_batch=False,
             repeat=False)
-        batch_generator = batch_iterator.__iter__(mode=AppMode.Train)
-
+        batch_generator = batch_iterator.__iter__()
 
         nodeTagSet = set()
         attrNameSet = set()
@@ -576,4 +581,5 @@ class SupervisedTrainer(object):
         with blockProfiler("Compute loss"):
             loss = self.loss.get_loss()
 
+        checkNans([loss, accuracy, beamAccuracy])
         return loss, accuracy, beamAccuracy

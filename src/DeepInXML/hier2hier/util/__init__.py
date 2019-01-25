@@ -1,4 +1,4 @@
-import glob, os, argparse, attrdict
+import glob, os, argparse, attrdict, math
 from attrdict import AttrDict
 from enum import IntEnum
 
@@ -64,7 +64,15 @@ debugNans = False
 def checkNans(t):
     if not debugNans:
         return
-    nanCount = torch.isnan(t.view(torch.numel(t))).sum()
+    if isinstance(t, torch.Tensor):
+        nanCount = torch.isnan(t.view(torch.numel(t))).sum() + torch.isinf(t.view(torch.numel(t))).sum()
+    elif isinstance(t, list):
+        return any([checkNans(t_) for t_ in t])
+    elif t is not None and (math.isnan(t) or math.isinf(t)):
+        nanCount = 1
+    else:
+        nanCount = 0
+    
     if int(nanCount):
         import pdb;pdb.set_trace()
         return True

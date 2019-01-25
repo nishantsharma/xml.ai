@@ -1,3 +1,7 @@
+appConfigDefaults = {
+    # AppConfig defaults
+}
+
 modelArgsDefaults = {
     "attrib_value_vec_len": 32,
     "node_info_propagator_stack_depth": 3,
