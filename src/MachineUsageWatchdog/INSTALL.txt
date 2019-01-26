@@ -34,19 +34,28 @@ VM Configuration Steps:
         PROMPT_COMMAND="touch /var/run/MachineUsageWatchdog;$PROMPT_COMMAND"
     This ensures that whenever bash console is used, the shutdown by watchdog is postponed.
 
-    Copy the project folder(MachineUsageWatchdog)
+    Copy the project folder(MachineUsageWatchdog) to /usr/local/src.
         git clone nisshar@vs-ssh.visualstudio.com:v3/nisshar/Hier2Hier/Hier2Hier
-            at an appropriate folder location.
-        Ensure that config for the current VM is appropriately programmed in LibLisa/config.py
+        sudo cp src/MachineUsageWatchdog to /usr/local/src/
+
+    Update machineUsageWatchdogConfig in MachineUsageWatchdog.py
+        sudo vi /usr/local/src/MachineUsageWatchdog.py
+
+        # Add following lines before the definition of first function.
+        machineUsageWatchdogConfig = AttrDict({})
+        machineUsageWatchdogConfig.vm_name = "gpu-vm"
+        machineUsageWatchdogConfig.resource_group_name = "learn"
 
     Configure for the MachineUsageWatchdog to be run at startup.
-        Add following lines to /etc/rc.local
-
-        PATH_TO_REPO=/path/to/repos/lisa-core/
-        nohup python3 $PATH_TO_REPO/src/MachineUsageWatchdog/MachineUsageWatchdog.py &
+    Add following lines to /etc/rc.local
+        # Create the watchdog file which triggers shutdown.
+        touch /var/run/MachineUsageWatchdog
+        chmod uog+tw /var/run/MachineUsageWatchdog
+        nohup python3 /usr/local/src/MachineUsageWatchdog/MachineUsageWatchdog.py &
 
     For processes we want to run in background, install stayAliveForCmd.sh in /usr/local/bin/.
     Also install stayAliveForMinutes.sh in /usr/local/bin/.
+        sudo ln -s //usr/local/src/*.sh /usr/local/bin/
 
 Other references
     https://docs.microsoft.com/en-us/azure/azure-stack/azure-stack-create-service-principals

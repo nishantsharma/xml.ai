@@ -6,6 +6,7 @@ The intention is to save money  on unused cloud VMs.
 """
 import sys, os, os.path, shutil, logging, time
 from datetime import datetime, timedelta
+from attrdict import AttrDict
 
 from msrestazure.azure_active_directory import MSIAuthentication
 from azure.mgmt.resource import ResourceManagementClient, SubscriptionClient
@@ -13,9 +14,10 @@ from azure.mgmt.compute import ComputeManagementClient
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
-from LibLisa import lisaConfig
-
-machineUsageWatchdogConfig = lisaConfig.machineUsageWatchdog
+#
+#machineUsageWatchdogConfig = AttrDict({})
+#machineUsageWatchdogConfig.vm_name = "gpu-vm"
+#machineUsageWatchdogConfig.resource_group_name = "learn"
 
 def azureInit():
     # Create MSI Authentication
@@ -50,8 +52,8 @@ def touch(fname, times=None):
 
 # Configuration
 watchInterval = timedelta(minutes=2)
-idleThresholdToSuspendInterval = timedelta(minutes=240)
-gracePeriodAfterStartInterval = timedelta(minutes=60)
+idleThresholdToSuspendInterval = timedelta(minutes=60)
+gracePeriodAfterStartInterval = timedelta(minutes=20)
 shutdownWatchdogFile="/var/run/MachineUsageWatchdog"
 logFilename = "/var/log/MachineUsageWatchdog.log"
 
