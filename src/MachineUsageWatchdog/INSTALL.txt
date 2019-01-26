@@ -16,7 +16,10 @@ VM Configuration Steps:
         sudo pip install -r requirements.txt
 
     Enable managed service identity for the VM in question.
-        https://docs.microsoft.com/en-us/azure/active-directory/managed-service-identity/tutorial-linux-vm-access-arm
+        Go to portal.azure.com and select the VM.
+        Clink on Identity in the settings section.
+        Make sure that the status is set to ON.
+        For details, check https://docs.microsoft.com/en-us/azure/active-directory/managed-service-identity/tutorial-linux-vm-access-arm
 
     Grant your VM access/ability to shutdown or reboot itself.
         Go to portal.azure.com and select the VM.
@@ -32,7 +35,7 @@ VM Configuration Steps:
     This ensures that whenever bash console is used, the shutdown by watchdog is postponed.
 
     Copy the project folder(MachineUsageWatchdog)
-        git clone ssh://prezentium@vs-ssh.visualstudio.com:22/lisa/_ssh/lisa-core
+        git clone nisshar@vs-ssh.visualstudio.com:v3/nisshar/Hier2Hier/Hier2Hier
             at an appropriate folder location.
         Ensure that config for the current VM is appropriately programmed in LibLisa/config.py
 

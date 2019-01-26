@@ -34,3 +34,6 @@ Attention is all you need.
 
 Beam Search Optimization during training time
     https://arxiv.org/pdf/1606.02960.pdf
+
+Microsoft Program Synthesis using Examples SDK
+    https://microsoft.github.io/prose/

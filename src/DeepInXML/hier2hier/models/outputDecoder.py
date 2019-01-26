@@ -379,6 +379,7 @@ class OutputDecoder(ModuleBase):
 
                     # Compute next attention.
                     with blockProfiler("ATTENTION-DECODE"):
+                        # Down sample curGruOutput for efficiency.
                         attnReadyGruOutput = torch.matmul(
                             curGruOutput.unsqueeze(1),
                             self.gruOutputProjectorForAttention,

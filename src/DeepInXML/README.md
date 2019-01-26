@@ -2,9 +2,9 @@
 
 **[Documentation]**
 
-This is a framework for XML-to-XML (hier2hier) models implemented in [PyTorch](http://pytorch.org).  The framework
-has modularized and extensible components for hier2hier models, training and inference, checkpoints, etc.  This is an
-alpha release. We appreciate any kind of feedback or contribution.
+This is a deep learning framework for automating XML-to-XML (hier2hier) transformations. It is implemented in
+[PyTorch](http://pytorch.org).  The framework has modularized and extensible components for training, debugging
+and inference, checkpoints, etc.  This is an alpha release. We appreciate any kind of feedback or contribution.
 
 # Key Features 
 1) Use of attention to find the appropriate character position and XML node to focus upon.
