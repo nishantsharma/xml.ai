@@ -351,6 +351,7 @@ class Hier2hier(ModuleBase):
             tensorBoardHook=nullTensorBoardHook,
             beam_count=None,
             collectOutput=None,
+            debugAttention=False,
             debugDataStages=False,
             clip_output_len=None,
     ):
@@ -491,12 +492,14 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.targetOutputsByTdol,
             hier2hierBatch.targetOutputLengthsByTdol,
             hier2hierBatch.gndtol2Tdol,
+            hier2hierBatch.goi2Gndtol,
             hier2hierBatch.tdol2Toi,
             hier2hierBatch.toi2Tdol,
             tensorBoardHook,
             collectOutput=collectOutput,
             beam_count=beam_count,
             clip_output_len=clip_output_len,
+            debugAttention=debugAttention,
             debugPack=debugPack,
             hier2hierBatch=hier2hierBatch,
         )

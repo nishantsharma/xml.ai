@@ -33,3 +33,8 @@ class TensorBoardHook(SummaryWriter):
         if self.periodicity is 0 or self._epoch % self.periodicity != 0:
             return
         super().add_histogram(label, value.cpu().detach().numpy(), self._epoch)
+
+    def add_image(self, label, img_tensor, global_step=None, dataformats='CHW'):
+        if self.periodicity is 0:
+            return
+        super().add_image(label, img_tensor, global_step=self._epoch, dataformats=dataformats)

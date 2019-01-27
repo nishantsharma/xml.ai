@@ -45,19 +45,28 @@ class Hier2hierBatch(object):
                     NDTLP[0/1]: Resultant ordering of positions within text/tail of nodes
                             upon packing these text/tail already in NDTL order.
                     NDTtLP/NDTlLP: Same as NDTLP[0/1].
+                    NOI: Nodes in original input order. Used for debugging.
                 For Attributes:
                     AVDL: Batch Attriutes Values in Decreasing Length order.
                     AVDLP: Resultant ordering of positions within attributes, upon packing
                         attribute values already in AVDL order.
                     ADFO: Batch Attributes in DFO order by nodes.
                     AVDL: Batch Attribute Values in decreasing length order.
+                    AOI: Attributes in original input order. Used for debugging.
                 For Text:
                     TtDLP: By decreasing text length.
+                    TtOIP: Text of nodes in NOI order, packed.
                 For Tail:
                     TlDLP: By decreasing tail length.
+                    TlOIP: Tail of nodes in NOI order, packed.
                 For Graph nodes:
                     GNI: Graph nodes in default order.(NDFO + AVDL + TtDLP + TlDLP)
                     GNDTOL: Graph nodes in TDOL order of their trees.
+                    GOI: Graph nodes in original order.(
+                           Nodes in NOI order
+                           + Attrs in AOI order
+                           + Text in TtOIP order
+                           + Tail in TlOIP order)
         """
         self.device = device 
         self.attribs = {}
@@ -77,6 +86,14 @@ class Hier2hierBatch(object):
         tgt = torch.tensor(tgt, device=self.device)
         tgtLengths = longTensor(tgtLengths, device=self.device)
         return tgt, tgtLengths
+
+    @cached_property_profiler
+    def targetOutputsByToi(self):
+        return self.outputs[0]
+
+    @cached_property_profiler
+    def targetOutputLengthsByToi(self):
+        return self.outputs[1]
 
     @cached_property_profiler
     def node2Parent(self):
@@ -324,6 +341,10 @@ class Hier2hierBatch(object):
         return self.packed2ObjIndices(avdl2AttrLength)
 
     @cached_property_profiler
+    def attrTuple2Avdl(self):
+        return self.tuple2PackedIndex(self.ndac2AttrCounts)
+
+    @cached_property_profiler
     def ndfo2Text2(self):
         retval = [None, None]
 
@@ -427,7 +448,7 @@ class Hier2hierBatch(object):
         return retval
 
     @cached_property_profiler
-    def ndtxSymbolPos2Ndtlp2(self):
+    def ndtxTuple2Ndtlp2(self):
         """
         Maps the tuple (ndtx index of node, position index in node.text/node.tail)
         to index in packed ndtlp2 index inside encodedTextByTtDLP/encodedTailByTlDLP.
@@ -473,14 +494,6 @@ class Hier2hierBatch(object):
             retval[i] = [ self.ndtl2Toi2[i][ndtl] for ndtl in self.ndtlp2Ndtl2[isTail] ]
 
         return retval
-
-    @cached_property_profiler
-    def targetOutputsByToi(self):
-        return self.outputs[0]
-
-    @cached_property_profiler
-    def targetOutputLengthsByToi(self):
-        return self.outputs[1]
 
     @cached_property_profiler
     def tdol2Toi(self):
@@ -655,11 +668,18 @@ class Hier2hierBatch(object):
         return self.gni2Tdol[self.gndtol2Gni]
 
     @cached_property_profiler
-    def gni2Gndtol(self):
+    def _gni2Gndtol(self):
         """
         Mapping of GNI indices to GNTDOL indices.
         """
         return invertPermutation(self.gndtol2Gni)
+
+    @cached_property_profiler
+    def gni2Gndtol(self):
+        """
+        Mapping of GNI indices to GNTDOL indices.
+        """
+        return longTensor(self._gni2Gndtol, device=self.device)
 
     @cached_property_profiler
     def posNbrhoodGraphByGndtol(self):
@@ -669,7 +689,7 @@ class Hier2hierBatch(object):
         adjListTensor = [
             longTensor(
                 sorted([
-                    self.gni2Gndtol[nbrGni]
+                    self._gni2Gndtol[nbrGni]
                     for nbrGni in self.posNbrhoodGraphByGni[self.gndtol2Gni[gndtol]]
                 ]),
                 device=self.device
@@ -682,6 +702,50 @@ class Hier2hierBatch(object):
 
         return (adjListTensor, adjLengthsTensor)
 
+    @cached_property_profiler
+    def goi2Gndtol(self):
+        return self.gni2Gndtol[self.goi2Gni]
+        
+    @cached_property_profiler
+    def goi2Gni(self):
+        retval = []
+        # ndfo2Toi, avdl2Toi, avdlp2Toi, ndtlp2Toi2[0], ndtlp2Toi2[1].
+
+        # Process nodes.
+        for xmlTree in self.inputs:
+            for node in xmlTree.iter():
+                ndfo = self.node2Ndfo[node]
+                retval.append(self.ndfo2Gni[ndfo])
+
+        # Process attributes.
+        for xmlTree in self.inputs:
+            for node in xmlTree.iter():
+                ndfo = self.node2Ndfo[node]
+                ndac = self.ndfo2Ndac[ndfo]
+                for attrIndex in range(len(node.attrib)):
+                    avdl = self.attrTuple2Avdl[(ndac, attrIndex)]
+                    retval.append(self.avdl2Gni[avdl])
+
+        # Process text and tail.
+        for isTail in [False, True]:
+            ndtxp2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
+            for xmlTree in self.inputs:
+                for node in xmlTree.iter():
+                    tailOrText = node.tail if isTail else node.text
+                    if not tailOrText:
+                        continue
+                    ndfo = self.node2Ndfo[node]
+                    ndtx2 = self.ndfo2Ndtl2[isTail][ndfo]
+                    for symIndex in range(len(tailOrText)):
+                        ndtxp2 = self.ndtxTuple2Ndtlp2[isTail][(ndtx2, symIndex)]
+                        retval.append(ndtxp2Gni[ndtxp2])
+
+        # Safety assertions.
+        assert(len(retval) == self.graphNodeCount)
+        assert(len(set(retval)) == self.graphNodeCount)
+
+        return longTensor(retval, device=self.device)
+ 
     @cached_property_profiler
     def fullSpotlight(self):
         return longTensor(list(range(self.graphNodeCount)), device=self.device)
@@ -705,6 +769,24 @@ class Hier2hierBatch(object):
                 packedIndex += 1
 
         return tuple2PackedIndex
+
+    @staticmethod
+    def packedIndex2Tuple(decreasingObjLengths):
+        # Build tuple2PackedIndex.
+        objCount = len(decreasingObjLengths)
+        if not objCount:
+            return []
+        maxObjLength = decreasingObjLengths[0]
+
+        packedIndex2Tuple = [] 
+        for indexWithinObj in range(maxObjLength):
+            for objIndex in range(objCount):
+                if indexWithinObj >= decreasingObjLengths[objIndex]:
+                    # This tree doesn't have any more nodes.
+                    break
+                packedIndex2Tuple.append((objIndex, indexWithinObj))
+
+        return packedIndex2Tuple 
 
     @staticmethod
     def linear2PackedIndex(decreasingObjLengths):
@@ -777,9 +859,9 @@ class Hier2hierBatch(object):
         def getGraphIndex(arg):
             node, isTail = arg
             ndfoIndex = self.node2Ndfo[node]
-            ndtlIndex = self.ndfo2Ndtl2[isTail][ndfoIndex]
+            ndtxIndex = self.ndfo2Ndtl2[isTail][ndfoIndex]
             ndtx2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
-            graphIndex = ndtx2Gni[ndtlIndex]
+            graphIndex = ndtx2Gni[ndtxIndex]
             return graphIndex
 
         retval = []

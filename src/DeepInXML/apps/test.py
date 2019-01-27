@@ -225,14 +225,14 @@ def knownSpotlightTest(testNo, appConfig, modelArgs, device):
                     ch = hier2hierBatch.inputs[toi].getroot().text[inputStrIndex]
 
                     # Make sure that input is encoded correctly.
-                    ndtl0 = hier2hierBatch.ndfo2Ndtl2[isTail][ndfo]
-                    ndttp = hier2hierBatch.ndtxSymbolPos2Ndtlp2[isTail][(ndtl0, inputStrIndex)]
-                    encodedInputSymbol = int(hier2hierBatch.encodedTextByTtDLP.data[ndttp])
+                    ndtx2 = hier2hierBatch.ndfo2Ndtl2[isTail][ndfo]
+                    ndtxp2 = hier2hierBatch.ndtxTuple2Ndtlp2[isTail][(ndtx2, inputStrIndex)]
+                    encodedInputSymbol = int(hier2hierBatch.encodedTextByTtDLP.data[ndtxp2])
                     inputVocab = hier2hierBatch.torchBatch.dataset.fields["src"].vocabs.text
                     assert(ch == inputVocab.itos[encodedInputSymbol])
 
                     # Compute spot index from gndtol of output character position.
-                    charGni = hier2hierBatch.ndttp2Gni[ndttp]
+                    charGni = hier2hierBatch.ndttp2Gni[ndtxp2]
                     charGndtol = hier2hierBatch.gni2Gndtol[charGni]
                     spotIndex = charGndtol
 

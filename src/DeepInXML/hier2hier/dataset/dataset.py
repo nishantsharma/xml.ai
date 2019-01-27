@@ -113,6 +113,7 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                 savedBatchData.tdol2Toi = processedBatch.tdol2Toi
                 savedBatchData.toi2Tdol = processedBatch.toi2Tdol
                 savedBatchData.gndtol2Tdol = processedBatch.gndtol2Tdol
+                savedBatchData.goi2Gndtol = processedBatch.goi2Gndtol
                 savedBatchData.gndtol2Gni = longTensor(processedBatch.gndtol2Gni, device=self.device)
                 savedBatchData.posNbrhoodGraphByGndtol = processedBatch.posNbrhoodGraphByGndtol
                 savedBatchData.fullSpotlight = processedBatch.fullSpotlight

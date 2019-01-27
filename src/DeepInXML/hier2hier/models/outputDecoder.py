@@ -232,6 +232,7 @@ class OutputDecoder(ModuleBase):
             targetOutputsByTdol,
             targetOutputLengthsByTdol,
             gndtol2Tdol,
+            goi2Gndtol,
             tdol2Toi,
             toi2Tdol,
             tensorBoardHook,
@@ -239,6 +240,7 @@ class OutputDecoder(ModuleBase):
             collectOutput=None,
             beam_count=None,
             clip_output_len=None,
+            debugAttention=False,
             debugPack=None,
             hier2hierBatch=None,
         ):
@@ -267,13 +269,21 @@ class OutputDecoder(ModuleBase):
         if collectOutput is None:
             collectOutput = not(self.training)
 
+        attnReadyVecsByGndtol = torch.matmul(
+            posEncodedVecsByGndtol.unsqueeze(1),
+            self.posVecsProjectorForAttention,
+        ).squeeze(1)
+
         if not self.training and beam_count is not None:
             return self.beamSearch(
                 sampleCount,
                 posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                initSpotlight,
                 posEncodedVecsByGndtol,
                 gndtol2Tdol,
                 tdol2Toi,
+                tensorBoardHook,
                 beam_count)
 
         with blockProfiler("ProcessPreLoop"):
@@ -318,10 +328,8 @@ class OutputDecoder(ModuleBase):
             else:
                 outputSymbols = None
 
-            attnReadyVecsByGndtol = torch.matmul(
-                posEncodedVecsByGndtol.unsqueeze(1),
-                self.posVecsProjectorForAttention,
-            ).squeeze(1)
+            if debugAttention:
+                debugAttentionFactorsImg = []
 
         if debugPack is not None:
             # Use ndfo2Toi partition.
@@ -390,7 +398,8 @@ class OutputDecoder(ModuleBase):
                         if self.spotlightByFormula is None:
                             (
                                 sli2Gndtol,
-                                attnReadyInfoCollapsedByTdol
+                                attnReadyInfoCollapsedByTdol,
+                                debugAttnFactorsByGndtol, 
                             ) = self.attentionSpotlight(
                                 posNbrhoodGraphByGndtol,
                                 attnReadyVecsByGndtol,
@@ -401,8 +410,12 @@ class OutputDecoder(ModuleBase):
                                 sampleIndexLimit,
                                 tensorBoardHook,
                                 beamMode=False,
+                                debugAttention=debugAttention,
                                 debugPack=None,#debugPack,
                             )
+                            if debugAttention: 
+                               debugAttnFactorsByGoi = debugAttnFactorsByGndtol[goi2Gndtol]
+                               debugAttentionFactorsImg.append(debugAttnFactorsByGoi.unsqueeze(0)) 
                         else:
                             sli2Gndtol = self.spotlightByFormula(
                                 hier2hierBatch,
@@ -497,6 +510,10 @@ class OutputDecoder(ModuleBase):
                     else:
                         curSymbolTensor = generatedSymbolTensor
 
+        if debugAttention: 
+           debugAttentionFactorsImg = torch.cat(debugAttentionFactorsImg )
+           tensorBoardHook.add_image("debugAttentionFactorsImg", debugAttentionFactorsImg, dataformats="HW")
+
         with blockProfiler("ProcessPostLoop"):
             symbolColumnsCount = len(outputSymbolsByTdolList)
             if collectOutput:
@@ -513,13 +530,16 @@ class OutputDecoder(ModuleBase):
     def beamSearch(self,
                 sampleCount,
                 posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
+                initSpotlight,
                 posEncodedVecsByGndtol,
                 gndtol2Tdol,
-                tdoil2Toi,
+                tdol2Toi,
+                tensorBoardHook,
                 beam_count,
     ):
         # Initial spotlight indices.
-        sli2Gndtol = self.attentionSpotlight.initialSpotLight(posNbrhoodGraphByGndtol)
+        sli2Gndtol = initSpotlight 
 
         bigSampleCount = sampleCount * beam_count
         # Build first GruOutput to kickstart the loop.
@@ -556,13 +576,16 @@ class OutputDecoder(ModuleBase):
             (
                 sli2Gndtol,
                 attnReadyInfoCollapsedByTdol,
+                debugAttnFactorsByGndtol, 
             ) = self.attentionSpotlight(
                 posNbrhoodGraphByGndtol,
+                attnReadyVecsByGndtol,
                 posEncodedVecsByGndtol,
                 sli2Gndtol,
                 gndtol2Tdol,
                 prevGruOutput,
                 sampleCount,
+                tensorBoardHook,
                 beamMode=True,
             )
 

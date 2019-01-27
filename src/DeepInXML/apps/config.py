@@ -125,6 +125,9 @@ def loadConfig(mode):
     parser.add_argument("--runtests",
                         type=str2bool, default=False,
                         help="Set to true to enable unit testing of components.")
+    parser.add_argument("--debugAttention", dest="attention",
+                        type=str2bool, default=False,
+                        help="Debug attention by loggnig it into tensorboard.")
 
     # Build args needed during training.
     parser.add_argument("--epochs", type = int,
@@ -246,7 +249,7 @@ def postProcessAppConfig(appConfig, mode):
     """
     appConfig.mode = int(mode)
     # Restructure appConfig to constitute a configuration hierarchy.
-    appConfig.debug = levelDown(appConfig, "debug", ["tensorboard", "profile", "runtests"])
+    appConfig.debug = levelDown(appConfig, "debug", ["attention", "tensorboard", "profile", "runtests"])
 
     # Training, validation and evaluation data folders.
     appConfig.input_path = appConfig.inputs_root_dir + appConfig.domain + "/"

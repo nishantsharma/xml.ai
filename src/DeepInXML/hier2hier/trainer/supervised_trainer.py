@@ -548,6 +548,7 @@ class SupervisedTrainer(object):
                                     hier2hierBatch,
                                     self.tensorBoardHook,
                                     collectOutput=calcAccuracy,
+                                    debugAttention=self.appConfig.debug.attention,
                                     )
         if calcAccuracy:
             targetOutputsByToi = hier2hierBatch.targetOutputsByToi

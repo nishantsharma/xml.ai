@@ -13,4 +13,4 @@ attrdict
 matplotlib>=2.2.2
 cached_property
 git+https://github.com/szagoruyko/pytorchviz
-
+pillow

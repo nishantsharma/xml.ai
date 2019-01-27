@@ -62,6 +62,7 @@ class AttentionSpotlight(ModuleBase):
                 beamMode=False,
                 spotlightThreshold=None,
                 debugPack=None,
+                debugAttention=False,
     ):
         """
         Inputs:
@@ -279,15 +280,19 @@ class AttentionSpotlight(ModuleBase):
         tensorBoardHook.add_histogram("normalizedAttentionFactorsByCurSli", normalizedAttentionFactorsByCurSli)
 
         # Extend to add the vector width dimension.
-        normalizedAttentionFactorsByCurSli = normalizedAttentionFactorsByCurSli.view(
-            list(normalizedAttentionFactorsByCurSli.shape) + [1]
-        )
+        normalizedAttentionFactorsByCurSli = normalizedAttentionFactorsByCurSli.unsqueeze(-1)
 
         # Get vecs by SLI.
         posEncodedVecsBySli = posEncodedVecsByGndtol[curSli2Gndtol]
         if beamMode:
             # Add a beam dimension to attnReadyVecsBySli.
             posEncodedVecsBySli = posEncodedVecsBySli.unsqueeze(0)
+
+        if debugAttention:
+           normalizedFactorsByGndtol = torch.zeros(posNbrhoodGraphByGndtol[1].shape, device=self.device, requires_grad=False)
+           normalizedFactorsByGndtol[curSli2Gndtol] = normalizedAttentionFactorsByCurSli.squeeze(-1)
+        else:
+           normalizedFactorsByGndtol = None
 
         # Use factors to obtain linear combination of cur SLI subset attnReadyVecs.
         normalizedAttentionVectorsByCurSli = (
@@ -310,7 +315,7 @@ class AttentionSpotlight(ModuleBase):
 
         checkNans(posEncodedVecsCollapsedByTdol)
 
-        return curSli2Gndtol, posEncodedVecsCollapsedByTdol
+        return curSli2Gndtol, posEncodedVecsCollapsedByTdol, normalizedFactorsByGndtol
 
     @methodProfiler
     def computeAttentionFactors(self,
