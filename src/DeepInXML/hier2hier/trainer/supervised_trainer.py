@@ -31,7 +31,7 @@ class SupervisedTrainer(object):
         batch_size (int, optional): batch size for experiment, (default: 64)
         checkpoint_every (int, optional): number of batches to checkpoint after, (default: 100)
     """
-    def __init__(self, appConfig, modelArgs, device):
+    def __init__(self, appConfig, modelArgs, device, spotlightByFormula=None):
         # Save configuration info.
         self.appConfig = appConfig
         self.modelArgs = modelArgs
@@ -62,6 +62,7 @@ class SupervisedTrainer(object):
         self.model = None
         self.optimizer = None
         self.loss = None
+        self.spotlightByFormula = spotlightByFormula
 
     def load(self, training_data=None):
         # Shortcuts.
@@ -100,6 +101,7 @@ class SupervisedTrainer(object):
                 tgt.sos_id,
                 tgt.eos_id,
                 device=device,
+                spotlightByFormula=self.spotlightByFormula,
                 )
 
             # Create optimizer.
@@ -150,6 +152,7 @@ class SupervisedTrainer(object):
             if self.modelArgs.spotlightThreshold is not None:
                 modelArgs.spotlightThreshold = self.modelArgs.spotlightThreshold
                 model.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
+            model.outputDecoder.spotlightByFormula=self.spotlightByFormula
 
             model.max_output_len = modelArgs.max_output_len
             if hasattr(model, "nodeInfoEncoder"):
@@ -158,6 +161,15 @@ class SupervisedTrainer(object):
             model.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
             model.outputDecoder.runtests = self.debug.runtests
             model.debug = self.debug
+
+
+            if not hasattr(model.outputDecoder.attentionSpotlight, "batchNormWeights"):
+                spotlightBatchNorm = nn.BatchNorm1d(num_features=1)
+                try:
+                    spotlightBatchNorm.cuda(device)
+                except:
+                    spotlightBatchNorm.cpu()
+                model.outputDecoder.attentionSpotlight.batchNormWeights = spotlightBatchNorm
 
             # Fixup nodeInfoPropagator.input_dropout.
             if hasattr(model, "nodeInfoPropagator"):
@@ -406,13 +418,16 @@ class SupervisedTrainer(object):
 
         # Evaluator helps monitor results during training iterations.
         if dev_data is not None:
-            evaluator = Evaluator(self.model, self.device, dev_data, loss=self.loss, batch_size=self.batch_size)
+            evaluator = Evaluator(
+                self.model, self.device, dev_data, loss=self.loss, batch_size=self.batch_size,
+                mode=self.appConfig.mode,
+            )
 
         first_time = True
         while self.epoch != self.n_epochs:
             self.tensorBoardHook.epochNext()
             # Partition next batch for iteartion within curent epoch.
-            batch_generator = batch_iterator.__iter__()
+            batch_generator = batch_iterator.__iter__(self.appConfig.mode)
 
             if first_time:
                 first_time = False

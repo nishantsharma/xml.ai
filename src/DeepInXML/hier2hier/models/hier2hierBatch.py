@@ -11,7 +11,7 @@ from attrdict import AttrDict
 import torch
 import torch.nn.utils.rnn as rnn
 
-from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile, AppMode
+from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile, longTensor, AppMode
 from hier2hier.dataset import Hier2HierIterator
 
 class cached_property_profiler(object):
@@ -30,7 +30,7 @@ class cached_property_profiler(object):
         return obj.__dict__[name]
 
 class Hier2hierBatch(object):
-    def __init__(self, torchBatch):
+    def __init__(self, torchBatch, device):
         """
             Important Orderings:
                 For Trees:
@@ -59,8 +59,24 @@ class Hier2hierBatch(object):
                     GNI: Graph nodes in default order.(NDFO + AVDL + TtDLP + TlDLP)
                     GNDTOL: Graph nodes in TDOL order of their trees.
         """
+        self.device = device 
         self.attribs = {}
         self.torchBatch = torchBatch
+
+    @cached_property_profiler
+    def sampleCount(self):
+        return len(self.torchBatch.src)
+
+    @cached_property_profiler
+    def inputs(self):
+        return self.torchBatch.src
+
+    @cached_property_profiler
+    def outputs(self):
+        tgt, tgtLengths = self.torchBatch.tgt
+        tgt = torch.tensor(tgt, device=self.device)
+        tgtLengths = longTensor(tgtLengths, device=self.device)
+        return tgt, tgtLengths
 
     @cached_property_profiler
     def node2Parent(self):
@@ -104,7 +120,7 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def decreasingFanoutsFactorByNdfo(self):
-        return torch.tensor([float(len(node)) for node in self.ndfo2Node if len(node)])
+        return torch.tensor([float(len(node)) for node in self.ndfo2Node if len(node)], device=self.device)
 
     @cached_property_profiler
     def node2Ndfo(self):
@@ -114,7 +130,8 @@ class Hier2hierBatch(object):
     @cached_property_profiler
     def encodedNodesByNdfo(self):
         tagVocab = self.torchBatch.dataset.fields["src"].vocabs.tags
-        return torch.LongTensor([tagVocab.stoi[node.tag] for node in self.ndfo2Node])
+        encodedNodesData = [tagVocab.stoi[node.tag] for node in self.ndfo2Node]
+        return longTensor(encodedNodesData, device=self.device)
 
     @cached_property_profiler
     def ndfo2Toi(self):
@@ -126,10 +143,13 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def parentSelectorByNdfo(self):
-        return torch.LongTensor([
-            self.node2Ndfo[self.node2Parent[node]] # NDFO index of the parent.
-            for node in self.ndfo2Node # Node at NDFO postion in the selector list.
-        ])
+        return longTensor(
+            [
+                self.node2Ndfo[self.node2Parent[node]] # NDFO index of the parent.
+                for node in self.ndfo2Node # Node at NDFO postion in the selector list.
+            ],
+            device=self.device,
+        )
 
     @cached_property_profiler
     def childSelectorByNdfoList(self):
@@ -142,7 +162,7 @@ class Hier2hierBatch(object):
                 ndfoChildNodeIndex = self.node2Ndfo[childNode]
                 retval[childNumber].append(ndfoChildNodeIndex)
         retval.reverse()
-        retval = [torch.LongTensor(item) for item in retval]
+        retval = [longTensor(item, device=self.device) for item in retval]
         return retval
 
     @cached_property_profiler
@@ -198,19 +218,24 @@ class Hier2hierBatch(object):
     def encodedAttrLabelsByAvdl(self):
         attrsVocab = self.torchBatch.dataset.fields["src"].vocabs.attrs
 
-        return torch.LongTensor([
-            attrsVocab.stoi[self.attrsByAdfo[adfo][0]]
-            for adfo in self.avdl2Adfo
-        ])
+        return longTensor([
+                attrsVocab.stoi[self.attrsByAdfo[adfo][0]]
+                for adfo in self.avdl2Adfo
+            ],
+            device=self.device,
+        )
         
     @cached_property_profiler
     def encodedAttrSymbolsByAvdlp(self):
         attrValuesVocab = self.torchBatch.dataset.fields["src"].vocabs.attrValues
         attrValues = [
-            torch.LongTensor([
-                attrValuesVocab.stoi[ch]
-                for ch in self.attrsByAdfo[adfo][1]
-            ])
+            longTensor(
+                [
+                    attrValuesVocab.stoi[ch]
+                    for ch in self.attrsByAdfo[adfo][1]
+                ],
+                device=self.device,
+            )
             for adfo in self.avdl2Adfo
             if self.attrsByAdfo[adfo][1]
         ]
@@ -218,7 +243,7 @@ class Hier2hierBatch(object):
         if attrValues:
             return rnn.pack_sequence(attrValues)
         else:
-            return torch.LongTensor(0, len(attrValuesVocab))
+            return longTensor([], device=self.device,)
 
     @cached_property_profiler
     def node2AvdlList(self):
@@ -235,7 +260,7 @@ class Hier2hierBatch(object):
         for node, avdlList in node2AvdlList.items():
             for avdl in avdlList:
                 retval[avdl] = self.node2Ndfo[node]
-        return torch.LongTensor(retval)
+        return longTensor(retval, device=self.device)
 
     @cached_property_profiler
     def avdl2Ndac(self):
@@ -261,10 +286,12 @@ class Hier2hierBatch(object):
     @cached_property_profiler
     def decreasingAttrCountsFactorByNdac(self):
         return torch.tensor([
-            float(len(avdlList))
-            for avdlList in self.ndac2AvdlList
-            if len(avdlList)
-        ])
+                float(len(avdlList))
+                for avdlList in self.ndac2AvdlList
+                if len(avdlList)
+            ],
+            device=self.device,
+        )
 
     @cached_property_profiler
     def attrValuesByAvdlp(self):
@@ -283,7 +310,7 @@ class Hier2hierBatch(object):
 
         # Reverse, because we want the items to come in increasing order of length.
         retval.reverse()
-        retval = [torch.LongTensor(item) for item in retval]
+        retval = [longTensor(item, device=self.device) for item in retval]
 
         return retval
 
@@ -345,7 +372,7 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def ndtll2Ndttl(self):
-        return torch.LongTensor([self.ndfo2Ndttl[ndfo] for ndfo in self.ndtll2Ndfo])
+        return longTensor([self.ndfo2Ndttl[ndfo] for ndfo in self.ndtll2Ndfo], device=self.device)
 
     @cached_property_profiler
     def ndtll2Ndfo(self):
@@ -371,7 +398,7 @@ class Hier2hierBatch(object):
             if self.ndtl2Node2[isTail]:
                 result = [ getText(node) for node in self.ndtl2Node2[isTail] ]
                 result = [
-                    torch.LongTensor([textVocab.stoi[ch] for ch in text])
+                    longTensor([textVocab.stoi[ch] for ch in text], device=self.device)
                     for text in result
                     if text not in [None, ""]
                 ]
@@ -398,6 +425,28 @@ class Hier2hierBatch(object):
 
                 retval[i] = self.packed2ObjIndices(decreasingTextLengths)
         return retval
+
+    @cached_property_profiler
+    def ndtxSymbolPos2Ndtlp2(self):
+        """
+        Maps the tuple (ndtx index of node, position index in node.text/node.tail)
+        to index in packed ndtlp2 index inside encodedTextByTtDLP/encodedTailByTlDLP.
+        """
+        retval = [None, None]
+        for isTail in [False, True]:
+            def getText(node):
+                return node.tail if isTail else node.text
+
+            if self.ndtl2Node2[isTail]:
+                decreasingTextLengths = []
+                for node in self.ndtl2Node2[isTail]:
+                    text = getText(node)
+                    if text is None:
+                        break
+                    decreasingTextLengths.append(len(text))
+
+                retval[isTail] = self.tuple2PackedIndex(decreasingTextLengths)
+        return retval            
 
     @cached_property_profiler
     def encodedTextByTtDLP(self):
@@ -427,21 +476,21 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def targetOutputsByToi(self):
-        return self.torchBatch.tgt[0]
+        return self.outputs[0]
 
     @cached_property_profiler
     def targetOutputLengthsByToi(self):
-        return self.torchBatch.tgt[1]
+        return self.outputs[1]
 
     @cached_property_profiler
     def tdol2Toi(self):
         retval = list(range(len(self.targetOutputLengthsByToi)))
         retval.sort(key =lambda toi:(-self.targetOutputLengthsByToi[toi], toi))
-        return torch.LongTensor(retval)
+        return longTensor(retval, device=self.device)
 
     @cached_property_profiler
     def toi2Tdol(self):
-        return torch.LongTensor(invertPermutation(self.tdol2Toi.tolist()))
+        return longTensor(invertPermutation(self.tdol2Toi.tolist()), device=self.device)
 
     @cached_property_profiler
     def targetOutputsByTdol(self):
@@ -505,7 +554,7 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def gni2Tdol(self):
-        return torch.LongTensor([ int(self.toi2Tdol[toi]) for toi in self.gni2Toi ])
+        return longTensor([ int(self.toi2Tdol[toi]) for toi in self.gni2Toi ], device=self.device)
 
     @cached_property_profiler
     def graphNodeCount(self):
@@ -618,13 +667,16 @@ class Hier2hierBatch(object):
         Mapping of GNTDOL indices to GNI indices.
         """
         adjListTensor = [
-            torch.LongTensor(sorted([
-                self.gni2Gndtol[nbrGni]
-                for nbrGni in self.posNbrhoodGraphByGni[self.gndtol2Gni[gndtol]]
-            ]))
+            longTensor(
+                sorted([
+                    self.gni2Gndtol[nbrGni]
+                    for nbrGni in self.posNbrhoodGraphByGni[self.gndtol2Gni[gndtol]]
+                ]),
+                device=self.device
+            )
             for gndtol in range(self.graphNodeCount)
         ]
-        adjLengthsTensor = torch.LongTensor([len(adjList) for adjList in adjListTensor])
+        adjLengthsTensor = longTensor([len(adjList) for adjList in adjListTensor], device=self.device)
 
         adjListTensor = rnn.pad_sequence(adjListTensor, batch_first=True)
 
@@ -632,7 +684,56 @@ class Hier2hierBatch(object):
 
     @cached_property_profiler
     def fullSpotlight(self):
-        return torch.LongTensor(list(range(self.graphNodeCount)))
+        return longTensor(list(range(self.graphNodeCount)), device=self.device)
+
+    @staticmethod
+    def tuple2PackedIndex(decreasingObjLengths):
+        # Build tuple2PackedIndex.
+        packedIndex = 0
+        objCount = len(decreasingObjLengths)
+        if not objCount:
+            return []
+        maxObjLength = decreasingObjLengths[0]
+
+        tuple2PackedIndex = {}
+        for indexWithinObj in range(maxObjLength):
+            for objIndex in range(objCount):
+                if indexWithinObj >= decreasingObjLengths[objIndex]:
+                    # This tree doesn't have any more nodes.
+                    break
+                tuple2PackedIndex[(objIndex, indexWithinObj)] = packedIndex
+                packedIndex += 1
+
+        return tuple2PackedIndex
+
+    @staticmethod
+    def linear2PackedIndex(decreasingObjLengths):
+        # Build linear2PackedIndex.
+        packedIndex = 0
+        objCount = len(decreasingObjLengths)
+        if not objCount:
+            return []
+        packedLength = sum(decreasingObjLengths)
+        maxObjLength = decreasingObjLengths[0]
+        linear2PackedIndex = [
+            [
+                None
+                for objLength in range(decreasingObjLengths[objIndex])
+            ]
+            for objIndex in range(objCount)
+        ]
+        for indexWithinObj in range(maxObjLength):
+            for objIndex in range(objCount):
+                if indexWithinObj >= decreasingObjLengths[objIndex]:
+                    # This tree doesn't have any more nodes.
+                    break
+                linear2PackedIndex[objIndex][indexWithinObj] = packedIndex
+                packedIndex += 1
+
+        # Append all.
+        linear2PackedIndex = sum(linear2PackedIndex, [])
+
+        return linear2PackedIndex
 
     @staticmethod
     def packed2ObjIndices(decreasingObjLengths):
@@ -643,27 +744,14 @@ class Hier2hierBatch(object):
             return []
         packedLength = sum(decreasingObjLengths)
         maxObjLength = decreasingObjLengths[0]
-        # linear2PackedIndex = [
-        #     [
-        #         None
-        #         for objLength in range(decreasingObjLengths[objIndex])
-        #     ]
-        #     for objIndex in range(objCount)
-        # ]
-        # tuple2PackedIndex = {}
         packed2ObjIndices = [None for _ in range(packedLength)]
         for indexWithinObj in range(maxObjLength):
             for objIndex in range(objCount):
                 if indexWithinObj >= decreasingObjLengths[objIndex]:
                     # This tree doesn't have any more nodes.
                     break
-                # tuple2PackedIndex[(objIndex, indexWithinObj)] = packedIndex
-                # linear2PackedIndex[objIndex][indexWithinObj] = packedIndex
                 packed2ObjIndices[packedIndex] = objIndex
                 packedIndex += 1
-
-        # Append all.
-        # linear2PackedIndex = sum(linear2PackedIndex, [])
 
         return packed2ObjIndices
 
@@ -716,7 +804,7 @@ def splitByToi(allVecs, vecIndex2Toi, sampleCount, prefix=""):
         for vecList in retval
     ]
     retval = [
-        torch.cat(vecList) if vecList else torch.Tensor([])
+        torch.cat(vecList) if vecList else torch.Tensor([], device=self.device)
         for vecList in retval
     ]
 

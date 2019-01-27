@@ -6,7 +6,7 @@ from torchtext.vocab import Vocab
 
 import xml.etree.ElementTree as ET
 from .randomXml import generateXml
-from hier2hier.util import invertPermutation, methodProfiler, lastCallProfile, AppMode
+from hier2hier.util import invertPermutation, methodProfiler, lastCallProfile, longTensor, AppMode
 
 class Hier2HierExample(torchtext.data.Example):
     def __init__(self, inXml, outStr):
@@ -73,7 +73,8 @@ class AttrTuple(object):
     pass
 
 class Hier2HierIterator(torchtext.data.BucketIterator):
-    def __init__(self, *argc, preprocess_batch=None, **kargv):
+    def __init__(self, *argc, device=None, preprocess_batch=None, **kargv):
+        self.device=device
         if preprocess_batch is None:
             preprocess_batch = lambda x:(x, None)
         self.preprocess_batch = preprocess_batch
@@ -95,23 +96,24 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                 savedBatchData.decreasingFanoutsFactorByNdfo = processedBatch.decreasingFanoutsFactorByNdfo
                 savedBatchData.encodedAttrLabelsByAvdl = processedBatch.encodedAttrLabelsByAvdl
                 savedBatchData.encodedAttrSymbolsByAvdlp = processedBatch.encodedAttrSymbolsByAvdlp
-                savedBatchData.avdl2Ndac = torch.LongTensor(processedBatch.avdl2Ndac)
-                savedBatchData.ndac2Ndfo = torch.LongTensor(processedBatch.ndac2Ndfo)
-                savedBatchData.avdl2Ndfo = torch.LongTensor(processedBatch.avdl2Ndfo)
+                savedBatchData.avdl2Ndac = longTensor(processedBatch.avdl2Ndac, device=self.device)
+                savedBatchData.ndac2Ndfo = longTensor(processedBatch.ndac2Ndfo, device=self.device)
+                savedBatchData.avdl2Ndfo = processedBatch.avdl2Ndfo
                 savedBatchData.avdlAttrSelectorsListByNdac = processedBatch.avdlAttrSelectorsListByNdac
                 savedBatchData.decreasingAttrCountsFactorByNdac = processedBatch.decreasingAttrCountsFactorByNdac
                 savedBatchData.encodedTextByTtDLP = processedBatch.encodedTextByTtDLP
                 savedBatchData.encodedTailByTlDLP = processedBatch.encodedTailByTlDLP
-                savedBatchData.ndttl2Ndac = torch.LongTensor(processedBatch.ndttl2Ndac)
-                savedBatchData.ndtll2Ndttl = torch.LongTensor(processedBatch.ndtll2Ndttl)
-                savedBatchData.ndfo2Ndtll = torch.LongTensor(processedBatch.ndfo2Ndtll)
+                savedBatchData.ndttl2Ndac = longTensor(processedBatch.ndttl2Ndac, device=self.device)
+                savedBatchData.ndtll2Ndttl = processedBatch.ndtll2Ndttl
+                savedBatchData.ndfo2Ndtll = longTensor(processedBatch.ndfo2Ndtll, device=self.device)
+                savedBatchData.ndfo2Ndac = longTensor(processedBatch.ndfo2Ndac, device=self.device)
                 savedBatchData.targetOutputsByTdol = processedBatch.targetOutputsByTdol
                 savedBatchData.targetOutputLengthsByTdol = processedBatch.targetOutputLengthsByTdol
                 savedBatchData.targetOutputsByTdolList = processedBatch.targetOutputsByTdolList
                 savedBatchData.tdol2Toi = processedBatch.tdol2Toi
                 savedBatchData.toi2Tdol = processedBatch.toi2Tdol
                 savedBatchData.gndtol2Tdol = processedBatch.gndtol2Tdol
-                savedBatchData.gndtol2Gni = torch.LongTensor(processedBatch.gndtol2Gni)
+                savedBatchData.gndtol2Gni = longTensor(processedBatch.gndtol2Gni, device=self.device)
                 savedBatchData.posNbrhoodGraphByGndtol = processedBatch.posNbrhoodGraphByGndtol
                 savedBatchData.fullSpotlight = processedBatch.fullSpotlight
                 savedBatchData.targetOutputsByToi = processedBatch.targetOutputsByToi
@@ -119,26 +121,10 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
 
                 # Test attrs
                 if mode == AppMode.Test:
-                    savedBatchData.ndfo2Node = processedBatch.ndfo2Node
-                    savedBatchData.attrsByAdfo = processedBatch.attrsByAdfo
-                    savedBatchData.avdl2Adfo = processedBatch.avdl2Adfo
-                    savedBatchData.encodedTextByNdtlp2 = processedBatch.encodedTextByNdtlp2
-                    savedBatchData.ndfo2Ndtl2 = processedBatch.ndfo2Ndtl2
-                    savedBatchData.toi2Tdol = processedBatch.toi2Tdol
-                    savedBatchData.gni2Tdol = processedBatch.gni2Tdol
-                    savedBatchData.inputs = processedBatch.torchBatch.src
-                    savedBatchData.outputs = processedBatch.torchBatch.tgt
-
-                    savedBatchData.ndfo2Toi = processedBatch.ndfo2Toi
-                    savedBatchData.ndac2Toi = processedBatch.ndac2Toi
-                    savedBatchData.avdl2Toi = processedBatch.avdl2Toi
-                    savedBatchData.avdlp2Toi = processedBatch.avdlp2Toi
-                    savedBatchData.ndtl2Toi2 = processedBatch.ndtl2Toi2
-                    savedBatchData.ndtlp2Toi2 = processedBatch.ndtlp2Toi2
-                    savedBatchData.gni2Toi = processedBatch.gni2Toi
-                    savedBatchData.gndtol2Toi = processedBatch.gndtol2Toi
+                    savedBatchData = processedBatch
                 elif mode == AppMode.Evaluate:
-                    savedBatchData.src = processedBatch.torchBatch.src
+                    savedBatchData.inputs = processedBatch.inputs
+                    savedBatchData.outputs = processedBatch.outputs
 
                 self.savedBatches.append(savedBatchData)
 

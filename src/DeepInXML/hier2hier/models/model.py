@@ -31,7 +31,8 @@ class Hier2hier(ModuleBase):
             outputVocab,
             sos_id,
             eos_id,
-            device=None):
+            device=None,
+            spotlightByFormula=None):
         super().__init__(device)
         self.debug = debug
         self.propagated_info_len = modelArgs.propagated_info_len
@@ -141,10 +142,16 @@ class Hier2hier(ModuleBase):
             dropout_p=modelArgs.dropout_p,
             device=device,
             runtests=self.debug.runtests,
+            spotlightByFormula=spotlightByFormula,
         )
         #####################################################
         #####################################################
         #####################################################
+
+        # https://datascience.stackexchange.com/questions/22118/why-do-we-need-for-shortcut-connections-to-build-residual-networks
+        # Parameter determining the ratio in which we mix propagated info
+        # and unpropagated info.
+        self.shortCutFactors = nn.Parameter(torch.tensor([0.5 for _ in range(6)], device=self.device))
 
         if device is not None:
             super().cuda(device)
@@ -161,9 +168,10 @@ class Hier2hier(ModuleBase):
         self.hierarchyPropagator1.reset_parameters(device)
         self.nodeTagsEmbedding.reset_parameters()
         self.outputDecoder.reset_parameters(device)
+        self.shortCutFactors = nn.Parameter(torch.tensor([0.5 for _ in range(6)], device=self.device))
 
     def preprocess_batch(self, batch):
-        return Hier2hierBatch(batch)
+        return Hier2hierBatch(batch, device=self.device)
 
     @methodProfiler
     def propagateThroughHierarchyInit(
@@ -176,6 +184,8 @@ class Hier2hier(ModuleBase):
         debugPack=None,
     ):
         propagatedNodeInfoByNdfo = self.nodeTagsEmbedding(encodedNodesByNdfo)
+        origPropagatedNodeInfoByNdfo = propagatedNodeInfoByNdfo
+        
         if debugPack is not None:
             (dataStagesToDebug, hier2hierBatch) = debugPack
             # Use ndfo2Toi partition.
@@ -195,6 +205,12 @@ class Hier2hier(ModuleBase):
                     debugPack,
                 )
 
+        # Linear combination here helps train faster.
+        propagatedNodeInfoByNdfo = (
+            self.shortCutFactors[0] * origPropagatedNodeInfoByNdfo
+            + (1-self.shortCutFactors[0]) * propagatedNodeInfoByNdfo
+        )
+
         return propagatedNodeInfoByNdfo
 
     @methodProfiler
@@ -209,6 +225,8 @@ class Hier2hier(ModuleBase):
         avdlAttrSelectorsListByNdac,
         decreasingAttrCountsFactorByNdac,
     ):
+        origPropagatedNodeInfoByNdfo = propagatedNodeInfoByNdfo
+
         # Propagated info in Avdl order(permutation of the attribute world).
         propagatedNodeInfoByAvdl = torch.index_select(
             propagatedNodeInfoByNdfo,
@@ -225,16 +243,14 @@ class Hier2hier(ModuleBase):
             encodedAttrsByAvdl,
         ) = self.attrValueEncoder(
                     encodedAttrSymbolsByAvdlp,
-                    embeddedAttrLabelsByAvdl.view(
-                        [1] + list(embeddedAttrLabelsByAvdl.shape)
-                    ),
+                    embeddedAttrLabelsByAvdl.unsqueeze(0),
                 )
 
         # Propagate through attributes.
         propagatedNodeInfoByNdac = propagatedNodeInfoByNdfo[ndac2Ndfo]
         if not avdlAttrSelectorsListByNdac:
             propagatedNodeInfoByNdac = propagatedNodeInfoByNdfo[ndac2Ndfo]
-            attnReadyAttrInfoByAvdl = torch.tensor([])
+            attnReadyAttrInfoByAvdl = torch.tensor([], device=self.device)
         else:
             propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl = self.attrInfoPropagator(
                 encodedAttrsByAvdl,
@@ -244,6 +260,12 @@ class Hier2hier(ModuleBase):
                 avdl2Ndac,
             )
 
+        # Linear combination here helps train faster.
+        propagatedNodeInfoByNdac = (
+            self.shortCutFactors[1] * origPropagatedNodeInfoByNdfo[ndac2Ndfo]
+            + (1-self.shortCutFactors[1]) * propagatedNodeInfoByNdac
+        )
+
         return propagatedNodeInfoByNdac, attnReadyAttrInfoByAvdl, ignoredAttnReadyAttrPositionInfoByAvdlp
 
     @methodProfiler
@@ -252,36 +274,41 @@ class Hier2hier(ModuleBase):
         propagatedNodeInfoByNdac,
         encodedTextByTtDLP,
         encodedTailByTlDLP,
+        ndfo2Ndac,
         ndttl2ndac,
         ndtll2ndttl,
         ndfo2ndtll,
     ):
+        # Linear combination here helps train faster.
+        origPropagatedNodeInfoByNdfo = propagatedNodeInfoByNdac[ndfo2Ndac]
+
         # Propagate through node.text
         propagatedNodeInfoByNDTtL = propagatedNodeInfoByNdac[ndttl2ndac]
         if encodedTextByTtDLP is not None:
             attnReadyTextInfoByTtDLP, propagatedNodeInfoByNDTtL = self.textInfoPropagator(
                         encodedTextByTtDLP,
-                        propagatedNodeInfoByNDTtL.view(
-                            [1] + list(propagatedNodeInfoByNDTtL.shape)
-                        ),
+                        propagatedNodeInfoByNDTtL.unsqueeze(0),
                     )
         else:
-            attnReadyTextInfoByTtDLP = torch.zeros([0, self.propagated_info_len])
+            attnReadyTextInfoByTtDLP = torch.zeros([0, self.propagated_info_len], device=self.device)
 
         # Propagate through node.tail
         propagatedNodeInfoByNDTlL = propagatedNodeInfoByNDTtL[ndtll2ndttl]
         if encodedTailByTlDLP is not None:
             attnReadyTextInfoByTlDLP, propagatedNodeInfoByNDTlL = self.tailInfoPropagator(
                         encodedTailByTlDLP,
-                        propagatedNodeInfoByNDTlL.view(
-                            [1] + list(propagatedNodeInfoByNDTlL.shape)
-                        ),
+                        propagatedNodeInfoByNDTlL.unsqueeze(0),
                     )
         else:
-            attnReadyTextInfoByTlDLP = torch.zeros([0, self.propagated_info_len])
+            attnReadyTextInfoByTlDLP = torch.zeros([0, self.propagated_info_len], device=self.device)
 
         # Permute back into NDFO.
         propagatedNodeInfoByNdfo = propagatedNodeInfoByNDTlL[ndfo2ndtll]
+
+        propagatedNodeInfoByNdfo = (
+            self.shortCutFactors[2] * origPropagatedNodeInfoByNdfo
+            + (1-self.shortCutFactors[2]) * propagatedNodeInfoByNdfo
+        )
 
         return attnReadyTextInfoByTtDLP, attnReadyTextInfoByTlDLP, propagatedNodeInfoByNdfo
 
@@ -295,6 +322,9 @@ class Hier2hier(ModuleBase):
         tensorBoardHook,
         debugPack=None,
     ):
+        # Linear combination here helps train faster.
+        origPropagatedNodeInfoByNdfo = propagatedNodeInfoByNdfo
+
         if debugPack is not None:
             (dataStagesToDebug, hier2hierBatch) = debugPack
         # Propagate through hierarchy one final time. This gives attention ready nodes
@@ -307,6 +337,11 @@ class Hier2hier(ModuleBase):
                     tensorBoardHook,
                     debugPack,
                 )
+
+        propagatedNodeInfoByNdfo = (
+            self.shortCutFactors[3] * origPropagatedNodeInfoByNdfo
+            + (1-self.shortCutFactors[3]) * propagatedNodeInfoByNdfo
+        )
 
         return propagatedNodeInfoByNdfo
 
@@ -385,6 +420,7 @@ class Hier2hier(ModuleBase):
             propagatedNodeInfoByNdac,
             hier2hierBatch.encodedTextByTtDLP,
             hier2hierBatch.encodedTailByTlDLP,
+            hier2hierBatch.ndfo2Ndac,
             hier2hierBatch.ndttl2Ndac,
             hier2hierBatch.ndtll2Ndttl,
             hier2hierBatch.ndfo2Ndtll,
@@ -461,7 +497,9 @@ class Hier2hier(ModuleBase):
             collectOutput=collectOutput,
             beam_count=beam_count,
             clip_output_len=clip_output_len,
-            debugPack=debugPack)
+            debugPack=debugPack,
+            hier2hierBatch=hier2hierBatch,
+        )
         if debugDataStages:
             for symIndex, outputSymbolsByTdol in enumerate(outputSymbolsByTdolList):
                 dataStagesToDebug.append(splitByToi(

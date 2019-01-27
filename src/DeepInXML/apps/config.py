@@ -73,7 +73,7 @@ def loadConfig(mode):
                             help='Path to experiment directory.')
         parser.add_argument("--run", action='store', dest='run', default = None, type = int,
                             help="Index of the run that should be operated upon.")
-        parser.add_argument('--resume', default=None, type=str2bool3,
+        parser.add_argument('--resume', default=False if mode==AppMode.Test else None, type=str2bool3,
                             help='Indicates if training has to be resumed from the latest checkpoint')
 
         # Testing data folders.
@@ -244,6 +244,7 @@ def postProcessAppConfig(appConfig, mode):
         Post proces appConfig.
         Build derived configuration items and fix some of the appConfig defaults, where necessary.
     """
+    appConfig.mode = int(mode)
     # Restructure appConfig to constitute a configuration hierarchy.
     appConfig.debug = levelDown(appConfig, "debug", ["tensorboard", "profile", "runtests"])
 

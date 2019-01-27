@@ -5,7 +5,7 @@ import torchtext
 
 import hier2hier
 from hier2hier.loss import NLLLoss
-from hier2hier.util import computeAccuracy
+from hier2hier.util import computeAccuracy, AppMode
 from hier2hier.dataset import Hier2HierIterator
 
 class Evaluator(object):
@@ -18,7 +18,7 @@ class Evaluator(object):
         batch_size (int, optional): batch size for evaluator (default: 64)
     """
 
-    def __init__(self, model, device, data, loss=NLLLoss(), batch_size=64):
+    def __init__(self, model, device, data, loss=NLLLoss(), batch_size=64, mode=None):
         self.loss = loss
         self.batch_size = batch_size
 
@@ -28,6 +28,10 @@ class Evaluator(object):
             dataset=data, batch_size=self.batch_size,
             sort=False, shuffle=True,
             device=device, train=False)
+        if mode is None:
+            mode = AppMode.Evaluate
+
+        self.mode=mode
 
     def evaluate(self, calcAccuracy=False):
         """ Evaluate a model on given dataset and return performance.
@@ -48,7 +52,7 @@ class Evaluator(object):
         beamAccuracy_total = 0
 
         with torch.no_grad():
-            batch_generator = self.batch_iterator.__iter__()
+            batch_generator = self.batch_iterator.__iter__(self.mode)
             for hier2hierBatch in batch_generator:
                 targetOutputsByToi = hier2hierBatch.targetOutputsByToi
                 targetOutputLengthsByToi = hier2hierBatch.targetOutputLengthsByToi

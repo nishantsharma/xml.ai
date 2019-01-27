@@ -105,8 +105,8 @@ class EncoderRNN(ModuleBase):
 
         Args:
             input_var (batch, seq_len):
-                tensor containing the features of the input sequence.
-            initial_hidden ()
+                tensor containing features of the input sequence.
+            initial_hidden (num_layers * num_directions, batch, hidden_size)
             input_lengths (list of int, optional):
                 A list that contains the lengths of sequences in the mini-batch
 
@@ -114,7 +114,7 @@ class EncoderRNN(ModuleBase):
             - **output** (batch, seq_len, hidden_size): variable containing the encoded features of the input sequence
             - **hidden** (num_layers * num_directions, batch, hidden_size): variable containing the features in the       hidden state h
         """
-        # Embed the input(s).
+        # Embed the "discrete" input(s).
         BatchSizesDiscovered = None
         if self.embedding is None:
             embedded = self.vocab[input_var]
@@ -126,7 +126,8 @@ class EncoderRNN(ModuleBase):
                 embedded = self.embedding(input_var)
         
         # Dropout some of the inputs, when configured.
-        embedded = self.input_dropout(embedded)
+        if embedded.shape[0]:
+            embedded = self.input_dropout(embedded)
 
         # If the inputs are variable lengths, we need to pack the sequences.
         if BatchSizesDiscovered is not None:
@@ -139,12 +140,19 @@ class EncoderRNN(ModuleBase):
             output, hidden = self.rnn(embedded)
         else:
             if not isinstance(embedded, rnn.PackedSequence):
-                output, hidden = self.rnn(embedded, initial_hidden)
+                if embedded.shape[0]:
+                    output, hidden = self.rnn(embedded, initial_hidden)
+                else:
+                    output, hidden = embedded.view(1, 0, self.hidden_size), initial_hidden
             else:
-                gapStart, gapEnd = int(embedded.batch_sizes[0]), initial_hidden.shape[1]
-                output, hidden = self.rnn(embedded, initial_hidden[:,0:gapStart,...])
-                if gapStart != gapEnd:
-                    hidden = torch.cat([hidden, initial_hidden[:,gapStart:,...]], dim=1)
+                # initial_hidden(call it initial_state) may be bigger in
+                # batch dimension than embedded(call it inputs).
+                # That just means that we shortcut uncovered portion of initial_hidden
+                # to the output.
+                noInputsStart, noInputsEnd = int(embedded.batch_sizes[0]), initial_hidden.shape[1]
+                output, hidden = self.rnn(embedded, initial_hidden[:,0:noInputsStart,...])
+                if noInputsStart != noInputsEnd:
+                    hidden = torch.cat([hidden, initial_hidden[:,noInputsStart:,...]], dim=1)
 
         if BatchSizesDiscovered is None and input_lengths is not None:
             output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)

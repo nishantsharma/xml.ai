@@ -167,6 +167,102 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
 def attentionSpotlightTest(testNo, appConfig, modelArgs, device):
     attentionSpotlightUnitTest()
     
+def knownSpotlightTest(testNo, appConfig, modelArgs, device):
+    """
+    In this test, we train over toy1(node.text reversal). We use one hot encoded attention which matches
+    directly with source symbol. This should test if rest of the system is working when we use hard coded attention.
+    """
+    # Instantiate trainer object.
+    modelArgs = deepcopy(modelArgs)
+    appConfig = deepcopy(appConfig)
+    appConfig.train_path = appConfig.inputs_root_dir + "toy1/dev/"
+    appConfig.dev_path = appConfig.inputs_root_dir + "toy1/dev/"
+    modelArgs.disable_batch_norm = True
+    modelArgs.dropout_p = 0
+    modelArgs.input_dropout_p = 0
+
+    appConfig.epochs = 1000
+    modelArgs.learning_rate = 0.005
+
+    def spotlightByFormula(hier2hierBatch, sampleIndexLimit, outputIndex):
+        """
+        For the node.text reversal dataset, this function computes the spotlight to use 
+        by finding the right input symbol to focus on.
+        """
+        retval = []
+        # Text positions to NDTLP.
+        isTail=False
+        for tdol in range(sampleIndexLimit):
+            targetOutput = hier2hierBatch.targetOutputsByTdol[tdol]
+            targetOutputLength = int(hier2hierBatch.targetOutputLengthsByTdol[tdol])
+
+            # Get ndfo position of the input node.
+            toi = int(hier2hierBatch.tdol2Toi[tdol])
+            rootNode = hier2hierBatch.inputs[toi].getroot()
+            ndfo = hier2hierBatch.node2Ndfo[rootNode]
+
+            # Compute gndtol of the input XML node.
+            # Computed as follows: inputs[toi] -> getroot() -> node2Ndfo -> ndfo2Gni -> gni2Gndtol.
+            nodeGni = hier2hierBatch.ndfo2Gni[ndfo]
+            nodeGndtol = hier2hierBatch.gni2Gndtol[nodeGni]
+
+            if outputIndex < 1 + len("<toyrev>"):
+                # We are in the opening tag portion of the output.
+                # Return gndtol of the XML node.
+                spotIndex = nodeGndtol
+            else:
+                # Compute input and output char index within node.text, where the current output pointer is. 
+                outputStrIndex = outputIndex - len("<toyrev>") - 1 # Don't forget <sos>.
+                outputStrLength = targetOutputLength - len("<toyrev>") - len("</toyrev>") - 2 # Don't forget <sos> and <eos>.
+                inputStrIndex = outputStrLength - outputStrIndex - 1
+
+                if inputStrIndex < 0:
+                    # We are currently in the closing tag portion of the output.
+                    # Return gndtol of the XML node.
+                    spotIndex = nodeGndtol
+                else:
+                    # Get the raw char stored at input.
+                    ch = hier2hierBatch.inputs[toi].getroot().text[inputStrIndex]
+
+                    # Make sure that input is encoded correctly.
+                    ndtl0 = hier2hierBatch.ndfo2Ndtl2[isTail][ndfo]
+                    ndttp = hier2hierBatch.ndtxSymbolPos2Ndtlp2[isTail][(ndtl0, inputStrIndex)]
+                    encodedInputSymbol = int(hier2hierBatch.encodedTextByTtDLP.data[ndttp])
+                    inputVocab = hier2hierBatch.torchBatch.dataset.fields["src"].vocabs.text
+                    assert(ch == inputVocab.itos[encodedInputSymbol])
+
+                    # Compute spot index from gndtol of output character position.
+                    charGni = hier2hierBatch.ndttp2Gni[ndttp]
+                    charGndtol = hier2hierBatch.gni2Gndtol[charGni]
+                    spotIndex = charGndtol
+
+                    # Make sure that target output is encoded correctly.
+                    targetOutput = hier2hierBatch.targetOutputsByTdol[tdol]
+                    outputVocab = hier2hierBatch.torchBatch.dataset.fields["tgt"].vocab
+                    assert(ch == outputVocab.itos[targetOutput[outputIndex]])
+
+            retval.append(spotIndex)
+        return torch.LongTensor(retval)
+
+    # Build trainer with a model which will use formula for spotlight.
+    trainer = SupervisedTrainer(appConfig, modelArgs, device, spotlightByFormula)
+
+    # Load training and dev dataset.
+    training_data = Hier2HierDataset(baseFolder=appConfig.train_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
+    dev_data = Hier2HierDataset(baseFolder=appConfig.dev_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
+
+    # Train the model.
+    trainer.train(training_data, dev_data=dev_data)
+
+    # Train once more.
+    import pdb;pdb.set_trace()
+    appConfig.epochs = 2000
+    trainer.model.outputDecoder.spotlightByFormula=None
+    trainer.train(training_data, dev_data=dev_data)
+
+def spotlightTest(testNo, appConfig, modelArgs, device):
+    raise NotImplementedError()
+
 def trainingProgressTest(testNo, appConfig, modelArgs, device):
     # Instantiate trainer object.
     modelArgs = deepcopy(modelArgs)
@@ -197,6 +293,7 @@ def trainingProgressTest(testNo, appConfig, modelArgs, device):
 
     # Run tests.
     trainer.train(test_data)
+    import pdb;pdb.set_trace()
 
 def hierarchyPropagatorTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
@@ -205,9 +302,6 @@ def encoderPermutationTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
 def batchGraphConsistencyTest(testNo, appConfig, modelArgs, device):
-    raise NotImplementedError()
-
-def spotlightTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
 def beamTest(testNo, appConfig, modelArgs, device):
@@ -219,6 +313,7 @@ def main():
 
     # Setup logging
     LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
+    os.makedirs(appConfig.runFolder, exist_ok=True)
     logging.basicConfig(filename=appConfig.runFolder + "training.log", format=LOG_FORMAT, level=getattr(logging, appConfig.log_level.upper()))
 
     # Log config info.
@@ -230,8 +325,8 @@ def main():
 
     # Test the model.
     for testFunc in [
-        # Training should progress for a single dataset.
-        trainingProgressTest,
+        # When a static spotlight moves as expected.
+        knownSpotlightTest,
 
         # Batch data should be generated correctly.
         hier2hierBatchTest,
@@ -245,6 +340,9 @@ def main():
         # Changing other trees or permuting input trees should not change the output of
         # an individual tree.
         noInteractionTest,
+
+        # Training should progress for a single dataset.
+        trainingProgressTest,
 
         # Propagate hierarchy data.
         hierarchyPropagatorTest,

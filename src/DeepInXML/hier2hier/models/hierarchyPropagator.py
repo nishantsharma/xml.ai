@@ -141,7 +141,6 @@ class HierarchyPropagator(ModuleBase):
 
         return propagatedNodeInfoByNdfo
 
-
 if __name__ == "__main__":
     encoded_node_vec_len=1
     propagated_info_len=1

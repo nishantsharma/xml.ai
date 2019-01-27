@@ -12,7 +12,6 @@ from .beamSearch import BeamSearch
 from hier2hier.util import (onehotencode, checkNans, blockProfiler,
                             methodProfiler, lastCallProfile)
 from hier2hier.models.hier2hierBatch import splitByToi, computeDimSqueezePoints
-from pympler import asizeof
 
 import torch.nn.functional as F
 
@@ -33,6 +32,7 @@ class OutputDecoder(ModuleBase):
             dropout_p=0,
             device=None,
             runtests=False,
+            spotlightByFormula=None,
     ):
         super().__init__(device)
         self.propagated_info_len = propagated_info_len
@@ -41,6 +41,7 @@ class OutputDecoder(ModuleBase):
         self.max_output_len = max_output_len
         self.input_dropout_p = input_dropout_p
         self.dropout_p = dropout_p
+        self.spotlightByFormula = spotlightByFormula
 
         self.sos_id = sos_id
         self.eos_id = eos_id
@@ -239,6 +240,7 @@ class OutputDecoder(ModuleBase):
             beam_count=None,
             clip_output_len=None,
             debugPack=None,
+            hier2hierBatch=None,
         ):
         if debugPack is not None:
             (dataStagesToDebug, hier2hierBatch) = debugPack
@@ -385,21 +387,30 @@ class OutputDecoder(ModuleBase):
                             self.gruOutputProjectorForAttention,
                         ).squeeze(1)
 
-                        (
-                            sli2Gndtol,
-                            attnReadyInfoCollapsedByTdol
-                        ) = self.attentionSpotlight(
-                            posNbrhoodGraphByGndtol,
-                            attnReadyVecsByGndtol,
-                            posEncodedVecsByGndtol,
-                            sli2Gndtol,
-                            gndtol2Tdol,
-                            attnReadyGruOutput,
-                            sampleIndexLimit,
-                            beamMode=False,
-                            debugPack=None,#debugPack,
-                        )
-                    print("Selected indices: {0}".format(sli2Gndtol.shape[0]))
+                        if self.spotlightByFormula is None:
+                            (
+                                sli2Gndtol,
+                                attnReadyInfoCollapsedByTdol
+                            ) = self.attentionSpotlight(
+                                posNbrhoodGraphByGndtol,
+                                attnReadyVecsByGndtol,
+                                posEncodedVecsByGndtol,
+                                sli2Gndtol,
+                                gndtol2Tdol,
+                                attnReadyGruOutput,
+                                sampleIndexLimit,
+                                tensorBoardHook,
+                                beamMode=False,
+                                debugPack=None,#debugPack,
+                            )
+                        else:
+                            sli2Gndtol = self.spotlightByFormula(
+                                hier2hierBatch,
+                                sampleIndexLimit,
+                                symbolIndex,
+                            )
+                            attnReadyInfoCollapsedByTdol  = posEncodedVecsByGndtol[sli2Gndtol]
+                    # print("Selected indices: {0}".format(sli2Gndtol.shape[0]))
 
                     if debugPack is not None:
                         # Use ndfo2Toi partition.

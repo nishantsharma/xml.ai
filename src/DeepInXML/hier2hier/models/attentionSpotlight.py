@@ -44,8 +44,10 @@ class AttentionSpotlight(ModuleBase):
         self.accumulateMaxByValue = AccumulateMaxByValue()
         self.spotNeighborsExplorer = SpotNeighborsExplorer()
 
+        self.batchNormWeights = nn.BatchNorm1d(num_features=headCount)
+
     def reset_parameters(self, device):
-        pass
+        self.batchNormWeights.reset_parameters()
 
     @methodProfiler
     def forward(self,
@@ -56,7 +58,8 @@ class AttentionSpotlight(ModuleBase):
                 gndtol2Tdol,
                 curQueryVec,
                 treeCount,
-                beamMode,
+                tensorBoardHook,
+                beamMode=False,
                 spotlightThreshold=None,
                 debugPack=None,
     ):
@@ -99,12 +102,13 @@ class AttentionSpotlight(ModuleBase):
             spotlightThreshold = self.spotlightThreshold
 
         prevSli2Tdol = gndtol2Tdol[prevSli2Gndtol]
-        attentionFactorsByPrevSLI = self.computeAttentionFactors(
+        preExpAattentionFactorsByPrevSLI, attentionFactorsByPrevSLI = self.computeAttentionFactors(
             attnReadyVecsByGndtol[prevSli2Gndtol],
             curQueryVec,
             prevSli2Tdol,
             beamMode=beamMode,
         )
+        tensorBoardHook.add_histogram("preExpAattentionFactorsByPrevSLI", preExpAattentionFactorsByPrevSLI)
         if debugPack is not None:
             prevSli2Toi  = [ int(hier2hierBatch.tdol2Toi[tdol]) for tdol in prevSli2Tdol ]
             # Use ndfo2Toi partition.
@@ -154,7 +158,7 @@ class AttentionSpotlight(ModuleBase):
                     break
 
                 discoveredNewGndtol2Tdol = gndtol2Tdol[discoveredNewGndtol]
-                attentionFactorsForNewGndtol = self.computeAttentionFactors(
+                _, attentionFactorsForNewGndtol = self.computeAttentionFactors(
                     attnReadyVecsByGndtol[discoveredNewGndtol],
                     curQueryVec,
                     discoveredNewGndtol2Tdol,
@@ -250,6 +254,7 @@ class AttentionSpotlight(ModuleBase):
             curSli2Gndtol = prevSli2Gndtol
             attentionFactorsByCurSli = attentionFactorsByPrevSLI
 
+        tensorBoardHook.add_histogram("attentionFactorsByCurSli", attentionFactorsByCurSli)
         # To normalize each factor within a tree, we need to find sum of all factors, by TDOL.
         sumAttentionFactorByTDOL = self.accumulateSumByValue.wrapper(
             attentionFactorsByCurSli,
@@ -271,6 +276,7 @@ class AttentionSpotlight(ModuleBase):
 
         # Normalize by sum along each tree.
         normalizedAttentionFactorsByCurSli = attentionFactorsByCurSli/attentionFactorsDivisor
+        tensorBoardHook.add_histogram("normalizedAttentionFactorsByCurSli", normalizedAttentionFactorsByCurSli)
 
         # Extend to add the vector width dimension.
         normalizedAttentionFactorsByCurSli = normalizedAttentionFactorsByCurSli.view(
@@ -352,12 +358,14 @@ class AttentionSpotlight(ModuleBase):
 
         # Clamp between range -50 to +50.
         preExpAttnFactors = torch.clamp(preExpAttnFactors, max=20)
+        if not beamMode:
+           preExpAttnFactors = self.batchNormWeights(preExpAttnFactors)
 
         expAttnFactors = torch.exp(preExpAttnFactors)
         assert(expAttnFactors.shape[-1] == 1)
         expAttnFactors = expAttnFactors.view(beamCount, -1) if beamMode else expAttnFactors.view(-1)
 
-        return expAttnFactors
+        return preExpAttnFactors, expAttnFactors
 
     @staticmethod
     def cullSmallFactors(

@@ -56,7 +56,7 @@ test_batch_iterator = Hier2HierIterator(
 
 # In a loop, run the trained model over test dataset.
 for i, batch in enumerate(test_batch_iterator.__iter__(AppMode.Evaluate)):
-    tree_inputs = batch.src
+    tree_inputs = batch.inputs
     tree_inputs = [ ET.tostring(tree_input.getroot()).decode() for tree_input in tree_inputs ]
 
     try:
