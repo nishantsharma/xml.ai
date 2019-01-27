@@ -50,12 +50,23 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
                     Data: Accumulated factors.
         """
         if beamMode:
-            beamCount, numVectors = valuesToAccumulate.shape[0:2]
-            remainingDims = valuesToAccumulate.shape[2:]
-            valuesToAccumulate = valuesToAccumulate.permute([1, 0] + remainingDims)
-        else:
-            numVectors = valuesToAccumulate.shape[0]
-            remainingDims = valuesToAccumulate.shape[1:]
+            beamCount = int(valuesToAccumulate.shape[0])
+            return torch.cat (
+                [
+                    self(
+                        valuesToAccumulate[i,...],
+                        vecIndicesToKey,
+                        totalKeyCount,
+                        False
+                    ).unsqueeze(1)
+                    for i in range(beamCount)
+                ],
+                1
+            )
+            
+
+        numVectors = valuesToAccumulate.shape[0]
+        remainingDims = valuesToAccumulate.shape[1:]
 
         indexBoundaries = torch.bincount(vecIndicesToKey, minlength=totalKeyCount)
 
@@ -71,7 +82,7 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
                     toAppend = torch.zeros(toAppend.shape[1:])
             elif self.mode == 1: # SUM
                 toAppend = torch.sum(toAppend, dim=0)
-            toAppend = toAppend.view([1] + list(toAppend.shape))
+            toAppend = toAppend.unsqueeze(0)
             # toAppend = toAppend.view([1] + toAppend.shape)
             retval.append(toAppend)
             start=end

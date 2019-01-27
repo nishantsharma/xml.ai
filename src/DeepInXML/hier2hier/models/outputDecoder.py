@@ -39,6 +39,7 @@ class OutputDecoder(ModuleBase):
         self.output_decoder_state_width = output_decoder_state_width
         self.output_decoder_stack_depth = output_decoder_stack_depth
         self.max_output_len = max_output_len
+        self.attentionSubspaceVecLen = attentionSubspaceVecLen
         self.input_dropout_p = input_dropout_p
         self.dropout_p = dropout_p
         self.spotlightByFormula = spotlightByFormula
@@ -571,6 +572,13 @@ class OutputDecoder(ModuleBase):
             vocabLen = self.symbolsTensor.shape[0]
             bigSampleCount = sampleCount * beamCount
             (prevGruOutput, prevGruState) = prevBeamStatesTuple
+
+            # Down sample curGruOutput for efficiency.
+            attnReadyPrevGruOutput = torch.matmul(
+                prevGruOutput.view(-1, self.output_decoder_state_width).unsqueeze(1),
+                self.gruOutputProjectorForAttention,
+            ).view(sampleCount, beamCount, -1)
+
             nonlocal sli2Gndtol
 
             (
@@ -583,13 +591,14 @@ class OutputDecoder(ModuleBase):
                 posEncodedVecsByGndtol,
                 sli2Gndtol,
                 gndtol2Tdol,
-                prevGruOutput,
+                attnReadyPrevGruOutput,
                 sampleCount,
                 tensorBoardHook,
                 beamMode=True,
             )
 
             # sampleCount X beamCount X * -> bigSampleCount X *
+            attnReadyInfoCollapsedByTdol = attnReadyInfoCollapsedByTdol.contiguous()
             attnReadyInfoCollapsedByTdol = attnReadyInfoCollapsedByTdol.view(bigSampleCount, -1)
             prevBeamSymbols = prevBeamSymbols.view(bigSampleCount)
 
@@ -651,7 +660,7 @@ class OutputDecoder(ModuleBase):
         )
 
         bestBeam = decodedSymbolBeams[0]
-        return self.symbolsTensor[bestBeam], bestBeam, None, None
+        return self.symbolsTensor[bestBeam], bestBeam, None
 
 
 if __name__ == "__main__":

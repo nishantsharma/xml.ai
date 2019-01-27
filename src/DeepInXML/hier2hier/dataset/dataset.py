@@ -73,8 +73,7 @@ class AttrTuple(object):
     pass
 
 class Hier2HierIterator(torchtext.data.BucketIterator):
-    def __init__(self, *argc, device=None, preprocess_batch=None, **kargv):
-        self.device=device
+    def __init__(self, *argc, preprocess_batch=None, **kargv):
         if preprocess_batch is None:
             preprocess_batch = lambda x:(x, None)
         self.preprocess_batch = preprocess_batch

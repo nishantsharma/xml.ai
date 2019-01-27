@@ -71,12 +71,7 @@ def BeamSearch(
         else:
             assert(isinstance(modelStartState, torch.Tensor))
             # Reshape tensor by inserting beam dimension.
-            curBeamStatesTuple.append(
-                modelStartState.view(
-                    [sampleCount, curBeamCount] 
-                    + list(modelStartState.shape[1:])
-                )
-            )
+            curBeamStatesTuple.append(modelStartState.unsqueeze(1))
     curBeamStatesTuple = tuple(curBeamStatesTuple)
 
     # List used to reconstruct the character trail in the winning beam(s).

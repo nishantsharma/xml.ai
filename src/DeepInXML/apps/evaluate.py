@@ -63,6 +63,7 @@ for i, batch in enumerate(test_batch_iterator.__iter__(AppMode.Evaluate)):
         _, predicted_outputs = h2hModel(batch, beam_count=appConfig.beam_count)
         predicted_text = trainer.decodeOutput(predicted_outputs)
     except ValueError as v:
+        predicted_outputs = None
         predicted_text = [v for _ in range(appConfig.batch_size)]
 
     try:
@@ -71,8 +72,9 @@ for i, batch in enumerate(test_batch_iterator.__iter__(AppMode.Evaluate)):
     except ValueError as v:
         expected_text_outputs = [v for _ in range(appConfig.batch_size)]
 
-    accuracy = computeAccuracy(expected_outputs, expected_lengths, predicted_outputs, device=device)
-    print("Accuracy for batch {0}:{1}".format(i, accuracy))
+    if predicted_outputs is not None:
+        accuracy = computeAccuracy(expected_outputs, expected_lengths, predicted_outputs, device=device)
+        print("Accuracy for batch {0}:{1}".format(i, accuracy))
 
     for j in range(appConfig.batch_size):
         print( ("\n"

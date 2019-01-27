@@ -350,21 +350,24 @@ class AttentionSpotlight(ModuleBase):
         if beamMode:
             # Reshape attnReadyVecs as beamCount X sliCount X attnReadyVecLen
             beamCount = curQueryVec.shape[1]
-            attnReadyVecs = attnReadyVecs.view([1] + list(attnReadyVecs.shape))
-            attnReadyVecs = attnReadyVecs.expand(beamCount, -1, -1)
+            attnReadyVecs = attnReadyVecs.unsqueeze(0)
+            attnReadyVecs = attnReadyVecs.expand(beamCount, -1, -1).unsqueeze(2)
 
             # Reshape curQueryVec as beamCount X sliCount X queryVecLen
-            curQueryVec = curQueryVec.permute(1, 0, 2)
+            curQueryVec = curQueryVec.permute(1, 0, 2).unsqueeze(3)
+        else:
+            attnReadyVecs = attnReadyVecs.unsqueeze(1)
+            curQueryVec = curQueryVec.unsqueeze(2)
 
-        preExpAttnFactors = torch.matmul(
-            attnReadyVecs.unsqueeze(1),
-            curQueryVec.unsqueeze(2),
-        ).squeeze(1)
+        # Take batch dot product using matmul.
+        preExpAttnFactors = torch.matmul(attnReadyVecs, curQueryVec).squeeze(-1)
 
         # Clamp between range -50 to +50.
         preExpAttnFactors = torch.clamp(preExpAttnFactors, max=20)
-        if not beamMode:
-           preExpAttnFactors = self.batchNormWeights(preExpAttnFactors)
+
+        # Apply batchNormWeights.
+        restoreShape = preExpAttnFactors.shape
+        preExpAttnFactors = self.batchNormWeights(preExpAttnFactors.view(-1, 1)).view(restoreShape)
 
         expAttnFactors = torch.exp(preExpAttnFactors)
         assert(expAttnFactors.shape[-1] == 1)
