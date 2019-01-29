@@ -256,7 +256,7 @@ class OutputDecoder(ModuleBase):
         if clip_output_len is not None:
             max_output_len=min(max_output_len, clip_output_len)
 
-        # Dropout parts of data for robustness.e
+        # Dropout parts of data for robustness.
         posEncodedVecsByGndtol = self.input_dropout(posEncodedVecsByGndtol)
 
         if debugPack is not None:

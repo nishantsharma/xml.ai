@@ -17,7 +17,9 @@ class AppMode(IntEnum):
     Test=3
 
 def longTensor(data, device):
-    return torch.tensor(torch.LongTensor(data), device=None if device==-1 else device)
+    if isinstance(data, torch.Tensor):
+        return data
+    return torch.tensor(data, device=None if device==-1 else device, dtype=torch.int64)
 
 def invertPermutation(perm, asList=None):
     if isinstance(perm, dict):

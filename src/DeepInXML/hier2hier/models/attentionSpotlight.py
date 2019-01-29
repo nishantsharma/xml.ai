@@ -309,10 +309,6 @@ class AttentionSpotlight(ModuleBase):
             beamMode=beamMode,
         )
 
-        if beamMode:
-            # Switch dims to make shape beamCount X tdolCount.
-            posEncodedVecsCollapsedByTdol = posEncodedVecsCollapsedByTdol.permute([1, 0, -1])
-
         checkNans(posEncodedVecsCollapsedByTdol)
 
         return curSli2Gndtol, posEncodedVecsCollapsedByTdol, normalizedFactorsByGndtol
