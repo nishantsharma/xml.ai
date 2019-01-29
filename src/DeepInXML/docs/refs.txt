@@ -37,3 +37,6 @@ Beam Search Optimization during training time
 
 Microsoft Program Synthesis using Examples SDK
     https://microsoft.github.io/prose/
+
+Improved Semantic Representations From Tree-Structured Long Short-Term Memory Networks
+    https://arxiv.org/pdf/1503.00075.pdf

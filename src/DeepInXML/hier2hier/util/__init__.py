@@ -37,14 +37,14 @@ def invertPermutation(perm, asList=None):
         return inverse
     else:
         return sorted(list(zip(values, keys)))
-    
+
 def onehotencode(n, i):
     return [1.0 if j==i else 0.0 for j in range(n)]
 
 def str2bool(v):
     """
     Converts string to bool.
-    
+
     This is used as type in argparse arguments to parse command line arguments.
     """
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -57,7 +57,7 @@ def str2bool(v):
 def str2bool3(v):
     """
     Converts string to bool or None.
-    
+
     This is used as type in argparse arguments to parse command line arguments.
     """
     if v is None:
@@ -77,7 +77,7 @@ def checkNans(t):
         nanCount = 1
     else:
         nanCount = 0
-    
+
     if int(nanCount):
         import pdb;pdb.set_trace()
         return True
