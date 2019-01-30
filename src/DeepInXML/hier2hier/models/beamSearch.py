@@ -76,14 +76,14 @@ def BeamSearch(
 
     # List used to reconstruct the character trail in the winning beam(s).
     # Each list element
-    #   Shape: SampleCount X CurBeamCount. Data: Probablity.
+    #   Shape: SampleCount X CurBeamCount. Data: Symbols generated.
     #   Data: Last symbol seen at the current (sample, beam) index.
     beamSymbolsTrace = [ curBeamSymbols ]
 
     # List used to reconstruct the character trail in the winning beam(s).
     # Each list element is a tuple.
     #     Each tuple element:
-    #         Shape: SampleCount X CurBeamCount. Data: Probablity.
+    #         Shape: SampleCount X CurBeamCount. Data: state vector.
     #         Data: Accumumulated states of the current beam at the
     #             current (sample, beam) index.
     beamStatesTupleTrace = [ curBeamStatesTuple ]

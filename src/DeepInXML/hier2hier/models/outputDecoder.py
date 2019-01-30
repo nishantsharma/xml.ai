@@ -544,7 +544,7 @@ class OutputDecoder(ModuleBase):
 
         bigSampleCount = sampleCount * beam_count
         # Build first GruOutput to kickstart the loop.
-        initGruOutput = torch.cat([self.initGruOutput.view(1, -1) for _ in range(sampleCount)])
+        initGruOutput = torch.cat([self.initGruOutput.unsqueeze(0) for _ in range(sampleCount)])
 
         initGruState = None
 
