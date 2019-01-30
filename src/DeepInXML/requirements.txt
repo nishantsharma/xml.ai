@@ -8,7 +8,6 @@ xmlschema
 orderedattrdict
 sortedcontainers
 tensorboardX
-tensorflow
 attrdict
 matplotlib>=2.2.2
 cached_property

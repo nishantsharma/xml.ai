@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 from hier2hier.models.moduleBase import ModuleBase
-from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel, checkNans
+from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel, checkNans, longTensor
 from hier2hier.models.hier2hierBatch import splitByToi
 from hier2hier.models.accumulateByValue import AccumulateByValue, AccumulateSumByValue, AccumulateMaxByValue
 from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
@@ -148,7 +148,7 @@ class AttentionSpotlight(ModuleBase):
                 (
                     alreadySeenSli2Gndtol,
                     discoveredNewGndtol,
-                ) = self.spotNeighborsExplorer.wrapper(
+                ) = self.spotNeighborsExplorer(
                     posNbrhoodGraphByGndtol,
                     alreadySeenSli2Gndtol,
                     discoveredNewGndtol,
@@ -431,10 +431,10 @@ class AttentionSpotlight(ModuleBase):
         elif retainedCount == len(retainedIndicesBool):
             return True
 
-        retainedIndices = torch.LongTensor([
+        retainedIndices = longTensor([
             i for i, _ in enumerate(discoveredGndtol)
             if retainedIndicesBool[i]
-        ])
+        ], device=retainedIndicesBool.device)
         return retainedIndices
 
 def attentionSpotlightUnitTest():

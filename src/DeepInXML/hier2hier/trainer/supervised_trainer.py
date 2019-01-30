@@ -18,7 +18,7 @@ from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, comp
                             summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode, checkNans
-
+from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
 
 class SupervisedTrainer(object):
     """ The SupervisedTrainer class helps in setting up a training framework in a
@@ -153,6 +153,7 @@ class SupervisedTrainer(object):
                 modelArgs.spotlightThreshold = self.modelArgs.spotlightThreshold
                 model.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
             model.outputDecoder.spotlightByFormula=self.spotlightByFormula
+            model.outputDecoder.attentionSpotlight.spotNeighborsExplorer=SpotNeighborsExplorer(device=device)
 
             model.max_output_len = modelArgs.max_output_len
             if hasattr(model, "nodeInfoEncoder"):

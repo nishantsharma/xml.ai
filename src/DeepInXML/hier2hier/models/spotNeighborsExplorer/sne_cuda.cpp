@@ -1,11 +1,12 @@
-#include <torch/torch.h>
+#include <torch/extension.h>
 #include <vector>
+#include <thrust/tuple.h>
 
 using namespace std;
 using namespace at;
 
 // CUDA forward declarations
-vector<Tensor> exploreSpotNeighborsCuda(
+thrust::tuple<Tensor, int> exploreSpotNeighborsCuda(
     tuple<Tensor, Tensor> graph,
     Tensor alreadySeenSet,
     Tensor activeNodeSet);
@@ -16,16 +17,32 @@ vector<Tensor> exploreSpotNeighborsCuda(
 #define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 
 // C++ interface
-vector<Tensor> exploreSpotNeighbors(
-    tuple<Tensor, Tensor> graph,
-    Tensor alreadySeenSet,
-    Tensor activeNodeSet) {
-  CHECK_INPUT(get<0>(graph));
-  CHECK_INPUT(get<1>(graph));
-  CHECK_INPUT(alreadySeenSet);
-  CHECK_INPUT(activeNodeSet);
+Tensor exploreSpotNeighbors(
+  		  tuple<Tensor, Tensor> graph,
+  		  Tensor alreadySeenSet,
+  		  Tensor activeNodeSet) {
+    CHECK_INPUT(get<0>(graph));
+    CHECK_INPUT(get<1>(graph));
+    CHECK_INPUT(alreadySeenSet);
+    CHECK_INPUT(activeNodeSet);
 
-  return exploreSpotNeighborsCuda(input, weights, bias, old_h, old_cell);
+    // Find neighbors using CUDA.
+    auto neighborsInfoFound = exploreSpotNeighborsCuda(graph, alreadySeenSet, activeNodeSet);
+    // cout <<"\nAfter CUDA call.";cout.flush();
+    auto neighborsFound = get<0>(neighborsInfoFound);
+    auto neighborsFoundCount = get<1>(neighborsInfoFound);
+
+    // Remove duplicates.
+    neighborsFound = neighborsFound.narrow(0, 0, neighborsFoundCount);
+    // cout <<"\nAfter narrow."<<neighborsFoundCount;cout.flush();
+    return neighborsFound;
+
+    // Prepare and return result.
+    //auto activeNodeSetOut = get<0>(sort(neighborsFound));
+    //auto alreadySeenSetOut = get<0>(sort(cat({ alreadySeenSet, neighborsFound })));
+    // cout <<"\nAfter merge.";cout.flush();
+
+    //return { alreadySeenSetOut, activeNodeSetOut };
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

@@ -166,7 +166,7 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
 
 def attentionSpotlightTest(testNo, appConfig, modelArgs, device):
     attentionSpotlightUnitTest()
-    
+
 def knownSpotlightTest(testNo, appConfig, modelArgs, device):
     """
     In this test, we train over toy1(node.text reversal). We use one hot encoded attention which matches
@@ -306,10 +306,10 @@ def batchGraphConsistencyTest(testNo, appConfig, modelArgs, device):
 
 def SpotNeighborsExplorerTest(testNo, appConfig, modelArgs, device):
     from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
-    nodeCount = random.randint(1, 10)
-    maxNbrs = random.randint(1, nodeCount)
-    nbrs = torch.randint(nodeCount, (nodeCount, maxNbrs))
-    nbrCounts = torch.randint(maxNbrs, (nodeCount,))
+    nodeCount = random.randint(1, 100)
+    maxNbrs = random.randint(1, nodeCount/2)
+    nbrs = torch.randint(nodeCount, (nodeCount, maxNbrs), device=device)
+    nbrCounts = torch.randint(maxNbrs, (nodeCount,), device=device)
     for node in range(nodeCount):
         for nbr in range(int(nbrCounts[node]), maxNbrs):
             nbrs[node, nbr] = -1
@@ -329,7 +329,9 @@ def SpotNeighborsExplorerTest(testNo, appConfig, modelArgs, device):
         alreadySeenOut2, activeSetOut2 = explorerUnderTest(graph, alreadySeenSetIn, activeSetIn)
 
         assert(set(alreadySeenOut1.tolist()) == set(alreadySeenOut2.tolist()))
+        assert(len(alreadySeenOut1.tolist()) == len(alreadySeenOut2.tolist()))
         assert(set(activeSetOut1.tolist()) == set(activeSetOut2.tolist()))
+        assert(len(activeSetOut1.tolist()) == len(activeSetOut2.tolist()))
 
         alreadySeenSetIn = alreadySeenOut1
         activeSetIn = activeSetOut1

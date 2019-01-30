@@ -27,11 +27,18 @@ class SpotNeighborsExplorer(torch.nn.Module):
             self.sne_base = SpotNeighborsExplorerPy()
         elif impl_selection == "cpp":
             if SpotNeighborsExplorerCpp is None:
-                SpotNeighborsExplorerCpp = load(name="sne_cpp", sources=[path + "/sne.cpp"], verbose=True)
+                SpotNeighborsExplorerCpp = load(
+                    name="sne_cpp",
+                    sources=[path + "/sne.cpp"],
+                    verbose=True)
             self.sne_base = SpotNeighborsExplorerCpp
         elif impl_selection == "cuda":
             if SpotNeighborsExplorerCuda is None:
-                SpotNeighborsExplorerCuda = load(name='sne_cuda', sources=[path+'/sne_cuda.cpp', path+'/sne_cuda_kernel.cu'], verbose=True)
+                SpotNeighborsExplorerCuda = load(
+                    name='sne_cuda',
+                    sources=[path+'/sne_cuda.cpp', path+'/sne_cuda_kernel.cu'],
+                    extra_cuda_cflags=["-D_MWAITXINTRIN_H_INCLUDED", "-D_FORCE_INLINES", "-D__STRICT_ANSI__"],
+                    verbose=True)
             self.sne_base = SpotNeighborsExplorerCuda
         elif impl_selection == "torch_script":
             if SpotNeighborsExplorerTS is None:
@@ -39,9 +46,14 @@ class SpotNeighborsExplorer(torch.nn.Module):
             self.sne_base = SpotNeighborsExplorerTS()
 
     @methodProfiler
-    def forward(self, *argc, **kargv):
+    def forward(self, graph, alreadySeenSet, activeNodeSet):
         if self.impl_selection in ["python", "torch_script"]:
-            return self.sne_base(*argc, **kargv)
-        else:
-            return self.sne_base.forward(*argc, **kargv)
+            return self.sne_base(graph, alreadySeenSet, activeNodeSet)
+        elif self.impl_selection == "cuda":
+            activeSetOut =  self.sne_base.forward(graph, alreadySeenSet, activeNodeSet)
+            activeSetOut = torch.unique(torch.sort(activeSetOut)[0])
+            alreadySeenOut = torch.sort(torch.cat([activeSetOut, alreadySeenSet]))[0]
+            return alreadySeenOut, activeSetOut
+        elif self.impl_selection == "cpp":
+            return self.sne_base.forward(graph, alreadySeenSet, activeNodeSet)
 

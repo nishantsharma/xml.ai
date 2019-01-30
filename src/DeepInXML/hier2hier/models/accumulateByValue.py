@@ -79,7 +79,7 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
                 if toAppend.shape[0] != 0:
                     toAppend = torch.max(toAppend)
                 else:
-                    toAppend = torch.zeros(toAppend.shape[1:])
+                    toAppend = torch.zeros(toAppend.shape[1:], device=valuesToAccumulate.device)
             elif self.mode == 1: # SUM
                 toAppend = torch.sum(toAppend, dim=0)
             toAppend = toAppend.unsqueeze(0)

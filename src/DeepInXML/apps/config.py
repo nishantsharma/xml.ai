@@ -97,7 +97,7 @@ def loadConfig(mode):
 
     # Testing multiple times.
     if mode == AppMode.Test:
-        parser.add_argument("--repetitionCount", type = int, default = 3,
+        parser.add_argument("--repetitionCount", type = int, default = 5,
                             help="Number of times to repeat test.")
 
     # Domain customizable load/store settings.
