@@ -4,176 +4,223 @@
 #include <cuda_runtime.h>
 
 #include <vector>
+#include <thrust>
 
-namespace {
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t sigmoid(scalar_t z) {
-  return 1.0 / (1.0 + exp(-z));
+using namespace std;
+using namespace at;
+using namespace thrust;
+
+__device__ int prefixsum(int threadId, int itemCountForThread)
+{
+    int threadsPerBlock = blockDim.x * blockDim.y;
+    __shared__ int temp[threadsPerBlock*2];
+
+    int pout = 0;
+    int pin = 1;
+
+    if(threadId == threadsPerBlock-1)
+        temp[0] = 0;
+    else
+        temp[threadId+1] = itemCountForThread;
+
+    __syncthreads();
+
+    for(int offset = 1; offset<threadsPerBlock; offset<<=1) {
+       pout = 1 - pout;
+       pin = 1 - pin;
+
+       if(threadId >= offset)
+           temp[pout * threadsPerBlock + threadId] = temp[pin * threadsPerBlock + threadId]
+               + temp[pin * threadsPerBlock + threadId - offset];
+       else
+           temp[pout * threadsPerBlock + threadId] = temp[pin * threadsPerBlock + threadId];
+
+       __syncthreads();
+    }
+
+    return temp[pout * threadsPerBlock + threadId];
 }
 
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t d_sigmoid(scalar_t z) {
-  const auto s = sigmoid(z);
-  return (1.0 - s) * s;
+template<class scalar_t>
+__global__ void exploreSpotNeighborsKernel(
+            const scalar_t* __restrict__ activeNodeSet,
+            int activeNodeCount,
+            const scalar_t* __restrict__ graphNbrs,
+            const scalar_t* __restrict__ graphNbrsCount,
+            const scalar_t* __restrict__ alreadySeenSet,
+            int alreadySeenCount,
+            scalar_t* neighborsFound,
+            int &neighborsFoundCount
+) {
+    // All threads in the block add their offsets to offsetForBlock.
+    __shared__ int offsetForBlock;
+
+    // Obtain and validate nodeIndex.
+    int nodeIndex = blockIdx.x * blockDim.x + threadIdx.x;
+    if(nodeIndex+i >= activeNodeCount) {
+        continue;
+    }
+
+    // Obtain and validate nbrIndex.
+    int nbrIndex = blockIdx.y * blockDim.y + threadIdx.y;
+    if(nbrIndex >= nbrCount) {
+        continue;
+    }
+
+    // Check if the nbr needs to be inserted into the activeNodeSet.
+    auto nbrCount = graphNbrsCount[nodeIndex];
+    auto nbr = graphNbrs[nodeIndex][nbrIndex];
+    scalar_t insertCountForThread = 0;
+    if (!binary_search(alreadySeenSet, alreadySeenSet+alreadySeenCount, nbr))
+    {
+        // Not already present.
+        insertCountForThread = 1;
+    }
+
+    // Compute an offset for current thread, unique among every thread in the block. 
+    int threadId = threadIdx.y * blockDim.x + threadIdx.x;
+    int offsetForThreadInBlock = prefixsum(threadId, insertCountForThread);
+
+    // Next, we compute the offset for the entire block. This is done, in only one thread, but is available
+    // to every thread in block due to the shared nature of offsetForBlock.
+    if(threadId == blockDim.x * blockDim.y - 1)
+    {
+       int insertCountForBlock = offsetForThreadInBlock + insertCountForThread;
+       offsetForBlock = atomicAdd(neighborsFoundCount, insertCountForBlock); // get a location to write them out
+    }
+
+    // ensure offsetForBlock is available to all threads.
+    __syncthreads();
+
+    // Finally, insert into the global activeNodeSet.
+    if(insertCountForThread) 
+    {
+       activeNodeSet[offsetForBlock + offsetForThreadInBlock] = nbr;
+    }
 }
 
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t d_tanh(scalar_t z) {
-  const auto t = tanh(z);
-  return 1 - (t * t);
+vector<Tensor> exploreSpotNeighbors(
+    tuple<Tensor, Tensor> graph,
+    Tensor alreadySeenSet,
+    Tensor activeNodeSet
+    ) {
+    // Expand input graph tuple.
+    auto graphNbrs = get<0>(graph);
+    auto graphNbrsCount = get<1>(graph);
+
+    // For discovering new neighbors, create an empty tensor with size matching neighborSet.
+    auto neighborsFound = zeros_like(graphNbrsCount);
+    int &neighborsFoundCount = 0;
+
+    // Launch GPU code for discovering new neighbors.
+    // Number of threads.
+    dim3 threadsPerBlock = (256, 4);
+
+    // Number of neighbor indices handled by each thread. 
+    const int k = 4;
+
+    // Thread block dimensions.
+    const int m = (graphNbrs.size(0)+threadsPerBlock.x-1)/threadsPerBlock.x; 
+    const int n = (graphNbrs.size(1)+threadsPerBlock.y-1)/threadsPerBlock.y; 
+    // If graph is M x N, the blocks are M/TPB.x X N/TPB.y.
+    const dim3 numBlocks(m, n);
+
+    // Dispatch GPU kernel to spot neighborhood kernels.
+    AT_DISPATCH_INTEGRAL_TYPES(neighborSet.type(), "exploreSpotNeighborsKernel", ([&] {
+        exploreSpotNeighborsKernel<scalar_t><<<numBlocks, threadsPerBlock>>>(
+            activeNodeSet.data<scalar_t>(),
+            activeNodeSet.size(0),
+            graphNbrs.data<scalar_t>(),
+            graphNbrsCount.data<scalar_t>(),
+            alreadySeenSet.data<scalar_t>(),
+            alreadySeenSet.size(0),
+            neighborsFound.data<scalar_t>(),
+            &neighborsFoundCount
+        )
+    }))
+
+    // Remove duplicates.
+    auto nbrsStart = neighborsFound.data<scalar_t>();
+    auto nbrsEnd = neighborsFound.data<scalar_t>()+neighborsFoundCount;
+    sort(nbrsStart, nbrsEnd);
+    nbrsEnd = unique(nbrsStart, nbrsEnd);
+    neighborsFoundCount = nbrsStart-nbrsEnd;
+    neighborsFound = neighborsFound.narrow(0, 0, neighborsFound);
+
+    // Prepare and return result.
+    auto activeNodeSetOut = neighborsFound;
+    auto alreadySeenSetOut = get<0>(sort(cat({ alreadySeenSet, neighborsFound })));
+    return {alreadySeenSetOut, activeNodeSetOut};
 }
 
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t elu(scalar_t z, scalar_t alpha = 1.0) {
-  return fmax(0.0, z) + fmin(0.0, alpha * (exp(z) - 1.0));
+#if 0
+template<class scalar_t>
+__global__ void exploreSpotNeighborsKernel(
+            const scalar_t* __restrict__ activeNodeSet,
+            int activeNodeCount,
+            const scalar_t* __restrict__ graphNbrs,
+            const scalar_t* __restrict__ graphNbrsCount,
+            const scalar_t* __restrict__ alreadySeenSet,
+            int alreadySeenCount,
+            scalar_t* neighborsFound,
+            int &neighborsFoundCount
+) {
+    // If graph is M x N, the blocks are M*k/T X (N/k).
+    __shared__ int offsetForBlock;
+
+    int nodeIndexStart = blockIdx.x * blockDim.x + threadIdx.x;
+    int nodeIndexCount = 1;
+
+    int nbrIndexStart = blockIdx.y * blockDim.y + threadIdx.y;
+    int nbrIndexCount = 1;
+
+    int threadId = threadIdx.y * blockDim.x + threadIdx.x;
+    
+    // Thread local memory for insertion.
+    scalar_t toInsert[nodeIndexCount*nbrIndexCount];
+    auto insertCountForThread = 0;
+
+    for(auto i=0;i<nodeIndexCount;i+=1) {
+        if(nodeIndexStart+i >= activeNodeCount) {
+            continue;
+        }
+        auto nodeIndex = nodeIndexStart+i;
+        auto nbrCount = graphNbrsCount[nodeIndex];
+        auto curNbrs=graphNbrs[nodeIndex];
+        for(auto j=0;j<nbrIndexCount;j+=1) {
+            auto nbrIndex = nbrIndexStart+i;
+            if(nbrIndex >= nbrCount) {
+                continue;
+            }
+            auto nbr = curNbrs[nbrIndex];
+            if (binary_search(alreadySeenSet, alreadySeenSet+alreadySeenCount, nbr))
+            {
+                // Not already present. Do insert.
+                toInsert[insertCountForThread] = nbr; 
+                insertCountForThread+=1;
+            }
+        }
+    }
+
+    // Find out exact number of elements discovered by this thread. Remove duplicates.
+    insertCountForThread = unique(toInsert, toInsert + insertCountForThread) - toInsert;
+
+    // Compute an offset for current thread, unique among every thread in the block. 
+    int offsetForThreadInBlock = prefixsum(threadId, insertCountForThread, );
+
+    // Next, we compute the offset for the entire block. This is done, in only one thread, but is available
+    // to everyone due to the shared nature of offsetForBlock.
+    if(threadId == threadsPerBlock.x * threadsPerBlock.y - 1)
+    {
+       int insertCountForBlock = offsetForThreadInBlock + insertCountForThread;
+       offsetForBlock = atomicAdd(neighborsFoundCount, insertCountForBlock); // get a location to write them out
+    }
+
+    __syncthreads(); // ensure offsetForBlock is available to all threads.
+
+    for(int i=0;i<insertCountForThread;i++) 
+    {
+       activeNodeSet[offsetForBlock + offsetForThreadInBlock + i] = toInsert[i];
+    }
 }
-
-template <typename scalar_t>
-__device__ __forceinline__ scalar_t d_elu(scalar_t z, scalar_t alpha = 1.0) {
-  const auto e = exp(z);
-  const auto d_relu = z < 0.0 ? 0.0 : 1.0;
-  return d_relu + (((alpha * (e - 1.0)) < 0.0) ? (alpha * e) : 0.0);
-}
-
-template <typename scalar_t>
-__global__ void lltm_cuda_forward_kernel(
-    const scalar_t* __restrict__ gates,
-    const scalar_t* __restrict__ old_cell,
-    scalar_t* __restrict__ new_h,
-    scalar_t* __restrict__ new_cell,
-    scalar_t* __restrict__ input_gate,
-    scalar_t* __restrict__ output_gate,
-    scalar_t* __restrict__ candidate_cell,
-    size_t state_size) {
-  const int column = blockIdx.x * blockDim.x + threadIdx.x;
-  const int index = blockIdx.y * state_size + column;
-  const int gates_row = blockIdx.y * (state_size * 3);
-  if (column < state_size) {
-    input_gate[index] = sigmoid(gates[gates_row + column]);
-    output_gate[index] = sigmoid(gates[gates_row + state_size + column]);
-    candidate_cell[index] = elu(gates[gates_row + 2 * state_size + column]);
-    new_cell[index] =
-        old_cell[index] + candidate_cell[index] * input_gate[index];
-    new_h[index] = tanh(new_cell[index]) * output_gate[index];
-  }
-}
-
-template <typename scalar_t>
-__global__ void lltm_cuda_backward_kernel(
-    scalar_t* __restrict__ d_old_cell,
-    scalar_t* __restrict__ d_gates,
-    const scalar_t* __restrict__ grad_h,
-    const scalar_t* __restrict__ grad_cell,
-    const scalar_t* __restrict__ new_cell,
-    const scalar_t* __restrict__ input_gate,
-    const scalar_t* __restrict__ output_gate,
-    const scalar_t* __restrict__ candidate_cell,
-    const scalar_t* __restrict__ gate_weights,
-    size_t state_size) {
-  const int column = blockIdx.x * blockDim.x + threadIdx.x;
-  const int index = blockIdx.y * state_size + column;
-  const int gates_row = blockIdx.y * (state_size * 3);
-  if (column < state_size) {
-    const auto d_output_gate = tanh(new_cell[index]) * grad_h[index];
-    const auto d_tanh_new_cell = output_gate[index] * grad_h[index];
-    const auto d_new_cell =
-        d_tanh(new_cell[index]) * d_tanh_new_cell + grad_cell[index];
-
-
-    d_old_cell[index] = d_new_cell;
-    const auto d_candidate_cell = input_gate[index] * d_new_cell;
-    const auto d_input_gate = candidate_cell[index] * d_new_cell;
-
-
-    const auto input_gate_index = gates_row + column;
-    const auto output_gate_index = gates_row + state_size + column;
-    const auto candidate_cell_index = gates_row + 2 * state_size + column;
-
-    d_gates[input_gate_index] =
-        d_input_gate * d_sigmoid(gate_weights[input_gate_index]);
-    d_gates[output_gate_index] =
-        d_output_gate * d_sigmoid(gate_weights[output_gate_index]);
-    d_gates[candidate_cell_index] =
-        d_candidate_cell * d_elu(gate_weights[candidate_cell_index]);
-  }
-}
-} // namespace
-
-std::vector<at::Tensor> lltm_cuda_forward(
-    at::Tensor input,
-    at::Tensor weights,
-    at::Tensor bias,
-    at::Tensor old_h,
-    at::Tensor old_cell) {
-  auto X = at::cat({old_h, input}, /*dim=*/1);
-  auto gates = at::addmm(bias, X, weights.transpose(0, 1));
-
-  const auto batch_size = old_cell.size(0);
-  const auto state_size = old_cell.size(1);
-
-  auto new_h = at::zeros_like(old_cell);
-  auto new_cell = at::zeros_like(old_cell);
-  auto input_gate = at::zeros_like(old_cell);
-  auto output_gate = at::zeros_like(old_cell);
-  auto candidate_cell = at::zeros_like(old_cell);
-
-  const int threads = 1024;
-  const dim3 blocks((state_size + threads - 1) / threads, batch_size);
-
-  AT_DISPATCH_FLOATING_TYPES(gates.type(), "lltm_forward_cuda", ([&] {
-    lltm_cuda_forward_kernel<scalar_t><<<blocks, threads>>>(
-        gates.data<scalar_t>(),
-        old_cell.data<scalar_t>(),
-        new_h.data<scalar_t>(),
-        new_cell.data<scalar_t>(),
-        input_gate.data<scalar_t>(),
-        output_gate.data<scalar_t>(),
-        candidate_cell.data<scalar_t>(),
-        state_size);
-  }));
-
-  return {new_h, new_cell, input_gate, output_gate, candidate_cell, X, gates};
-}
-
-std::vector<at::Tensor> lltm_cuda_backward(
-    at::Tensor grad_h,
-    at::Tensor grad_cell,
-    at::Tensor new_cell,
-    at::Tensor input_gate,
-    at::Tensor output_gate,
-    at::Tensor candidate_cell,
-    at::Tensor X,
-    at::Tensor gate_weights,
-    at::Tensor weights) {
-  auto d_old_cell = at::zeros_like(new_cell);
-  auto d_gates = at::zeros_like(gate_weights);
-
-  const auto batch_size = new_cell.size(0);
-  const auto state_size = new_cell.size(1);
-
-  const int threads = 1024;
-  const dim3 blocks((state_size + threads - 1) / threads, batch_size);
-
-  AT_DISPATCH_FLOATING_TYPES(X.type(), "lltm_forward_cuda", ([&] {
-    lltm_cuda_backward_kernel<scalar_t><<<blocks, threads>>>(
-        d_old_cell.data<scalar_t>(),
-        d_gates.data<scalar_t>(),
-        grad_h.data<scalar_t>(),
-        grad_cell.data<scalar_t>(),
-        new_cell.data<scalar_t>(),
-        input_gate.data<scalar_t>(),
-        output_gate.data<scalar_t>(),
-        candidate_cell.data<scalar_t>(),
-        gate_weights.data<scalar_t>(),
-        state_size);
-  }));
-
-  auto d_weights = d_gates.t().mm(X);
-  auto d_bias = d_gates.sum(/*dim=*/0, /*keepdim=*/true);
-
-  auto d_X = d_gates.mm(weights);
-  auto d_old_h = d_X.slice(/*dim=*/1, 0, state_size);
-  auto d_input = d_X.slice(/*dim=*/1, state_size);
-
-  return {d_old_h, d_input, d_weights, d_bias, d_old_cell, d_gates};
-}
+#endif

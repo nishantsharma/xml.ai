@@ -1,8 +1,9 @@
-#include <torch/extension.h>
-
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <torch/extension.h>
+#include <iostream>
+
 using namespace std;
 using namespace at;
 
@@ -42,15 +43,17 @@ vector<Tensor> exploreSpotNeighbors(
     auto accessGraphNbrsCount = graphNbrsCount.accessor<int64_t,1>();
 
     set<int64_t> neighborSet;
+    // cout <<"\nStart CPPCode\n";
     for(auto nodeIndex=0;nodeIndex<accessActiveNodeSet.size(0);nodeIndex++) {
-        auto nbrCount = accessGraphNbrsCount[nodeIndex];
-        auto curNbrs=accessGraphNbrs[nodeIndex];
+        auto node = accessActiveNodeSet[nodeIndex];
+        auto nbrCount = accessGraphNbrsCount[node];
+        auto curNbrs=accessGraphNbrs[node];
+        // cout <<"\tFor "<<node<<"\n";
         for(int nbrIndex=0;nbrIndex<nbrCount;nbrIndex++)
         {
             auto nbr=curNbrs[nbrIndex];
-            bool found = accessor_binary_search (
-                    accessAlreadySeenSet,
-                    nbr) >= 0;
+            bool found = accessor_binary_search(accessAlreadySeenSet, nbr) >= 0;
+            // cout <<(found?" Found ":" Not Found ") << nbr;
             if (!found)
             {
                 neighborSet.insert(nbr);
@@ -65,7 +68,9 @@ vector<Tensor> exploreSpotNeighbors(
     }
 
     auto alreadySeenSetOut = get<0>(sort(cat({ alreadySeenSet, activeNodeSetOut })));
-    
+
+    // cout <<"End CPPCode\n";
+    cout.flush();
     return {alreadySeenSetOut, activeNodeSetOut};
 }
 

@@ -5,17 +5,11 @@ import torch
 from hier2hier.models.moduleBase import ModuleBase
 from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
 
-test=False
-TorchJitDecorator=torch.jit.script_method if not test else lambda x:x
-class SpotNeighborsExplorer(torch.jit.ScriptModule if not test else ModuleBase):
+class SpotNeighborsExplorerTS(torch.jit.ScriptModule):
     def __init__(self):
-        super().__init__(None)
+      {{  super().__init__(No}}ne)
 
-    @methodProfiler
-    def wrapper(self, *argc, **kargv):
-        return self(*argc, **kargv)
-
-    @TorchJitDecorator
+    @torch.jit.script_method
     def forward(self, graph, alreadySeenSet, activeNodeSet):
         # type: (Tuple[Tensor, Tensor], Tensor, Tensor) -> Tuple[Tensor, Tensor]
         """

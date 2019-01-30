@@ -42,7 +42,7 @@ class AttentionSpotlight(ModuleBase):
         # Network for attention model between query and attention ready inputs.
         self.accumulateSumByValue = AccumulateSumByValue()
         self.accumulateMaxByValue = AccumulateMaxByValue()
-        self.spotNeighborsExplorer = SpotNeighborsExplorer()
+        self.spotNeighborsExplorer = SpotNeighborsExplorer(device=device)
 
         self.batchNormWeights = nn.BatchNorm1d(num_features=headCount)
 
@@ -122,7 +122,7 @@ class AttentionSpotlight(ModuleBase):
         sliDimension = 1 if beamMode else 0
 
         if self.checkGraph:
-            maxAttentionFactorByTDOL = self.accumulateMaxByValue.wrapper(
+            maxAttentionFactorByTDOL = self.accumulateMaxByValue(
                 attentionFactorsByPrevSLI,
                 gndtol2Tdol[prevSli2Gndtol],
                 treeCount,

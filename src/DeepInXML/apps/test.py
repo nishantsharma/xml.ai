@@ -18,7 +18,7 @@ from hier2hier.optim import Optimizer
 from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator, GeneratedXmlDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import str2bool
+from hier2hier.util import str2bool, longTensor
 from hier2hier.models.attentionSpotlight import attentionSpotlightUnitTest
 
 from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder
@@ -304,6 +304,36 @@ def encoderPermutationTest(testNo, appConfig, modelArgs, device):
 def batchGraphConsistencyTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
+def SpotNeighborsExplorerTest(testNo, appConfig, modelArgs, device):
+    from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
+    nodeCount = random.randint(1, 10)
+    maxNbrs = random.randint(1, nodeCount)
+    nbrs = torch.randint(nodeCount, (nodeCount, maxNbrs))
+    nbrCounts = torch.randint(maxNbrs, (nodeCount,))
+    for node in range(nodeCount):
+        for nbr in range(int(nbrCounts[node]), maxNbrs):
+            nbrs[node, nbr] = -1
+    graph = (nbrs, nbrCounts)
+
+    explorerUnderTest = SpotNeighborsExplorer(device=device)
+    explorerToMatch = SpotNeighborsExplorer(impl_selection="python", device=device)
+
+    startAtiveSetCount = random.randint(0, int(nodeCount/3))
+    activeSetIn = longTensor(
+        sorted(random.sample(range(nodeCount), startAtiveSetCount)),
+        device=device
+    )
+    alreadySeenSetIn = activeSetIn.clone()
+    while activeSetIn.shape[0]:
+        alreadySeenOut1, activeSetOut1 = explorerToMatch(graph, alreadySeenSetIn, activeSetIn)
+        alreadySeenOut2, activeSetOut2 = explorerUnderTest(graph, alreadySeenSetIn, activeSetIn)
+
+        assert(set(alreadySeenOut1.tolist()) == set(alreadySeenOut2.tolist()))
+        assert(set(activeSetOut1.tolist()) == set(activeSetOut2.tolist()))
+
+        alreadySeenSetIn = alreadySeenOut1
+        activeSetIn = activeSetOut1
+
 def beamTest(testNo, appConfig, modelArgs, device):
     raise NotImplementedError()
 
@@ -325,6 +355,9 @@ def main():
 
     # Test the model.
     for testFunc in [
+        # Spot neighbors explorer.
+        SpotNeighborsExplorerTest,
+
         # When a static spotlight moves as expected.
         knownSpotlightTest,
 
