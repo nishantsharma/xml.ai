@@ -1,3 +1,11 @@
+"""
+Toy1 dataset is composed of simple single node XML trees with a randomly generated text
+property. The output for each tree is the same tree with the text property reversed.
+For example
+
+<toyrev>kldasd</toyrev> becomes <toyrev>dsadlk</toyrev>
+"""
+
 appConfigDefaults = {
     # AppConfig defaults
     "checkpoint_every": 10,

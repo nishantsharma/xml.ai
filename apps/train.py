@@ -1,3 +1,11 @@
+"""
+Entry point for the application which trains the model implementation on any specified domain.
+Training progress is rendered on the command line.
+
+Don't call directly. Use ./scripts/train.sh --domain <domainId>
+
+To see command line options, run ./scripts/train.sh --help
+"""
 import os, sys, argparse, logging, json
 from orderedattrdict import AttrDict
 

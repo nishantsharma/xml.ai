@@ -1,3 +1,12 @@
+"""
+Configuration subsystem for the applications(train/test/evaluate).
+Two types of configuration objects are created here.
+
+appConfig: Configuration related with the specific launch of the application.
+
+modelArgs: These configuration items determine the nature of the deep learning 
+    model generated. They are unlikely to change across application runs.
+"""
 import os, argparse, logging, glob, random
 from orderedattrdict import AttrDict
 from importlib import import_module
@@ -18,12 +27,17 @@ from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import str2bool, str2bool3, levelDown, AppMode
 
+
+# Global AppConfig defaults:
+#       Unless an app config item is overridden at the command line level or
+#       at the domain level, it is picked up from here.
 appConfigGlobalDefaults = {
-    # AppConfig defaults.
     "checkpoint_every": 100,
 }
 
-# Overridden by domain specific defaults.
+# Global modelArgs defaults:
+#       Unless a modelArgs config item is overridden at the command line level or
+#       at the domain level, it is picked up from here.
 modelArgsGlobalDefaults = {
     # XML Schema limits.
     "max_node_count": None,
@@ -57,9 +71,19 @@ modelArgsGlobalDefaults = {
 }
 
 def loadConfig(mode):
-    def basic_arguments_parser(add_help):
+    """
+    Build config objects for application launch instance(appConfig) and model arguments.
+    Configuration is built by merging:
+        Options specified at the command line(highest priority).
+        Domain specific defaults specified in the domain directory(next priority).
+        Global defaults defined above.
+
+    Returns:
+        Tuple of appConfig and modelArgs.
+    """
+    def __basic_arguments_parser(add_help):
         """
-        Just creates a command line parser with basic set of arguments.
+        Creates a command line parser with a minimal set of folder level arguments.
         """
         parser = argparse.ArgumentParser(add_help=add_help)
 
@@ -84,10 +108,10 @@ def loadConfig(mode):
         return parser
 
     # Some config defaults depend on the appConfig. So, peeking into appConfig, before configuring the rest
-    basicAppConfig, _ = basic_arguments_parser(False).parse_known_args()
+    basicAppConfig, _ = __basic_arguments_parser(False).parse_known_args()
     postProcessAppConfig(basicAppConfig, mode)
 
-    # Get domain defaults.
+    # Get domain defaults and merge them.
     domainModule = import_module("domains." + basicAppConfig.domain)
     modelArgsDefaults = AttrDict({ **modelArgsGlobalDefaults, **domainModule.modelArgsDefaults})
     appConfigDefaults = AttrDict({ **appConfigGlobalDefaults, **domainModule.appConfigDefaults})

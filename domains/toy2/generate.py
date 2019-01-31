@@ -7,6 +7,9 @@ from hier2hier.dataset.xsd2xml import GenXML
 import xml.etree.ElementTree as ET
 
 def transform(xmlTree):
+    """
+    Transforms XML tree by swapping ShipTo and BillTo addresses.
+    """
     root = xmlTree.getroot()
     shipToName = root.find("ShipTo").find("name")
     billToName = root.find("BillTo").find("name")
@@ -14,13 +17,16 @@ def transform(xmlTree):
     shipToName.text = billToName.text
     billToName.text = temp
 
-def generate_dataset(generator, root, name, size):
-    path = os.path.join(root, name)
+def generate_dataset(generator, rootFolder, datasetName, treeCount):
+    """
+    Generates input and output XML files for toy2 dataset.
+    """
+    path = os.path.join(rootFolder, datasetName)
     if not os.path.exists(path):
         os.mkdir(path)
 
     # generate data file
-    for index in range(size):
+    for index in range(treeCount):
         # Write the generated XML.
         dataInPath = os.path.join(path, 'dataIn_{0}.xml'.format(index))
         with open(dataInPath, 'w') as fout:

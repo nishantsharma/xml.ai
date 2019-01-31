@@ -1,3 +1,12 @@
+"""
+Entry point for the application which manually compares model results on the test dataset.
+Results are rendered on the command line.
+
+Don't call directly. Use ./scripts/evaluate.sh
+
+To see command line options, run ./scripts/evaluate.sh --help
+"""
+
 import os, argparse, logging, json
 from orderedattrdict import AttrDict
 

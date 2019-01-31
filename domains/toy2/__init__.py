@@ -1,3 +1,10 @@
+"""
+Toy2 dataset is composed of an XML tree containing two randomly generated addresses.
+The first address is labelled billTo while the other is shipTo.
+The XML schema can be seen inside schema.xsd file.
+
+The output transformation is swapping of billTo and shipTo addresses.
+"""
 appConfigDefaults = {
     # AppConfig defaults
 }

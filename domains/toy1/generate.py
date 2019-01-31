@@ -1,3 +1,7 @@
+"""
+Module to generate toy1 dataset.
+"""
+
 from __future__ import print_function
 import argparse
 import os
@@ -11,14 +15,17 @@ parser.add_argument('--max-len', help="max sequence length", default=10)
 parser.add_argument('--count', help="Total number of data entries to generate", default=1000)
 args = parser.parse_args()
 
-def generate_dataset(root, name, size):
-    path = os.path.join(root, name)
+def generate_dataset(rootFolder, datasetName, treeCount):
+    """
+    Generates input and output XML files for toy1 dataset.
+    """
+    path = os.path.join(rootFolder, datasetName)
     if not os.path.exists(path):
         os.mkdir(path)
 
     srcAlphabet = string.ascii_lowercase + string.ascii_uppercase + string.digits
     # generate data file
-    for index in range(size):
+    for index in range(treeCount):
         length = random.randint(1, args.max_len)
         dataSeq = []
         dataStr = ""

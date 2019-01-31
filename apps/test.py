@@ -1,3 +1,12 @@
+"""
+Entry point for the application which runs a battery of tests on the model implementation.
+Results are rendered on the command line.
+
+Don't call directly. Use ./scripts/test.sh
+
+To see command line options, run ./scripts/test.sh --help
+"""
+
 import os, sys, argparse, logging, json, random
 from orderedattrdict import AttrDict
 from copy import deepcopy
