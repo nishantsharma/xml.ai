@@ -64,6 +64,7 @@ class OutputDecoder(ModuleBase):
         self.attentionSpotlight = AttentionSpotlight(
             spotlightThreshold,
             checkGraph=enableSpotlight,
+            device=self.device,
             )
         posVecsProjectorForAttention = torch.randn(propagated_info_len, attentionSubspaceVecLen, device=self.device)
         posVecsProjectorForAttention /= math.sqrt(propagated_info_len)

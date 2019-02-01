@@ -62,7 +62,10 @@ class Hier2HierDataset(torchtext.data.Dataset):
         
         examples = []
         for inFile, outFile in self.filePairs:
-            inXml = transform(loader(inFile))
+            try:
+                inXml = transform(loader(inFile))
+            except:
+                import pdb;pdb.set_trace()
             with open(outFile, "r") as fp:
                 outStr = fp.read()
             examples.append(Hier2HierExample(inXml, outStr))

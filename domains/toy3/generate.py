@@ -19,14 +19,14 @@ def transformXml(outNode):
     """
     Transform input XML as per the changes of toy3 schema.
     """
-    # Swap tail and text.
-    tail = outNode.tail
-    outNode.tail = outNode.text
-    outNode.text = tail
-
     # Transform all children nodes.
     for childNode in outNode:
         transformXml(childNode)
+
+        # Swap tail and text.
+        tail = childNode.tail
+        childNode.tail = childNode.text
+        childNode.text = tail
 
     # Rotate attributes.
     for i in range(len(outNode)):

@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 idStartVocab = string.ascii_letters + "_"
 idVocab = string.digits + idStartVocab + "."
-textVocab = re.sub("[.<>/]", "", string.printable)
+textVocab = re.sub("[\x0c\x0b.<>/]", "", string.printable)
 
 def getId(len_range):
     return (
@@ -74,5 +74,8 @@ def generateXml(generatorArgs):
 
         if root_node is None:
             root_node = node
+
+    # Root node cannot have tail.
+    root_node.tail = None
 
     return ET.ElementTree(root_node)

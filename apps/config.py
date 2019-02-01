@@ -117,7 +117,7 @@ def loadConfig(mode):
     appConfigDefaults = AttrDict({ **appConfigGlobalDefaults, **domainModule.appConfigDefaults})
 
     # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
-    parser = basic_arguments_parser(True)
+    parser = __basic_arguments_parser(True)
 
     # Testing multiple times.
     if mode == AppMode.Test:
