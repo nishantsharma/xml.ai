@@ -96,6 +96,10 @@ class AttentionSpotlight(ModuleBase):
                 Data: Vectors representing the query.
 
         """
+        if dataDebugHook is None:
+            def dataDebugHook(*argv, **kargv):
+                pass
+
         if spotlightThreshold is None:
             spotlightThreshold = self.spotlightThreshold
 

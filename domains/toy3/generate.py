@@ -7,7 +7,7 @@ import argparse
 import os, copy, shutil, random, string
 
 import xml.etree.ElementTree as ET
-from hier2hier.dataset.dataset import generateXml
+from hier2hier.dataset import generateXml, generateVocabs
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', help="data directory", default="data/")
@@ -74,9 +74,11 @@ def generate_dataset(rootFolder, datasetName, treeCount):
         "tail_len_range": (-20, 3),
     }
 
+    vocabs = generateVocabs(generatorArgs)
+
     # generate data files in loop.
     for index in range(treeCount):
-        inXml = generateXml(generatorArgs)
+        inXml = generateXml(generatorArgs, vocabs)
         outXml = copy.deepcopy(inXml)
         transformXml(outXml.getroot())
 

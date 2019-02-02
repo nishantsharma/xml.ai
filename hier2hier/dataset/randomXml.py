@@ -22,7 +22,22 @@ def getText(len_range, vocab=None):
         vocab = textVocab
     return "".join([random.choice(textVocab) for _ in range(textLen)])
 
-def generateXml(generatorArgs):
+def generateVocabs(generatorArgs):
+    tag_gen_params = generatorArgs.get("tag_gen_params", (50, (0, 5)))
+    attr_gen_params = generatorArgs.get("attr_gen_params", (50, (0, 5)))
+    attr_value_gen_params = generatorArgs.get("attr_value_gen_params", (50, (0, 20)))
+
+    tagSet = [getId(tag_gen_params[1]) for _ in range(tag_gen_params[0])]
+    attrSet = [getId(attr_gen_params[1]) for _ in range(attr_gen_params[0])]
+    attrValueSet = [getText(attr_value_gen_params[1]) for _ in range(attr_value_gen_params[0])]
+
+    return tagSet, attrSet, attrValueSet
+
+def generateXml(generatorArgs, vocabs=None):
+    if vocabs is None:
+        vocabs = generateVocabs(generatorArgs)
+    (tagSet, attrSet, attrValueSet) = vocabs
+
     for k, v in generatorArgs.items():
         if v is None:
             del generatorArgs[k]
@@ -30,17 +45,9 @@ def generateXml(generatorArgs):
     node_count_range = generatorArgs.get("node_count_range", (1, 4))
     max_child_count = generatorArgs.get("max_child_count", 4)
 
-    tag_gen_params = generatorArgs.get("tag_gen_params", (50, (0, 5)))
-    attr_gen_params = generatorArgs.get("attr_gen_params", (50, (0, 5)))
-    attr_value_gen_params = generatorArgs.get("attr_value_gen_params", (50, (0, 20)))
-
     attr_count_range = generatorArgs.get("attr_count_range", (0, 5))
     text_len_range = generatorArgs.get("text_len_range", (-5, 7))
     tail_len_range = generatorArgs.get("tail_len_range", (-20, 10))
-
-    tagSet = [getId(tag_gen_params[1]) for _ in range(tag_gen_params[0])]
-    attrSet = [getId(attr_gen_params[1]) for _ in range(attr_gen_params[0])]
-    attrValueSet = [getText(attr_value_gen_params[1]) for _ in range(attr_value_gen_params[0])]
 
     root_node = None
     node_count = random.randrange(*node_count_range)
