@@ -40,12 +40,12 @@ def hier2hierBatchTest(testNo, appConfig, modelArgs, device):
     generatorArgs = {
         "node_count_range": (3, 10),
         "max_child_count": 4,
-        "taglen_range": (0, 5),
+
+        "tag_gen_params": (50, (0, 5)),
+        "attr_gen_params": (50, (0, 5)),
+        "attr_value_gen_params": (50, (0, 20)),
 
         "attr_count_range": (0, 3),
-        "attr_len_range": (0, 5),
-        "attr_value_len_range": (0, 20),
-
         "text_len_range": (-4, 7),
         "tail_len_range": (-20, 10),
     }
@@ -63,12 +63,12 @@ def smallDataTest(testNo, appConfig, modelArgs, device):
     generatorArgs = {
         "node_count_range": (1, 2),
         "max_child_count": 4,
-        "taglen_range": (0, 5),
+
+        "tag_gen_params": (50, (0, 5)),
+        "attr_gen_params": (50, (0, 5)),
+        "attr_value_gen_params": (50, (0, 20)),
 
         "attr_count_range": (0, 3),
-        "attr_len_range": (0, 5),
-        "attr_value_len_range": (0, 20),
-
         "text_len_range": (1, 7),
         "tail_len_range": (-20, 10),
     }
@@ -93,12 +93,12 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
     generatorArgs = {
         "node_count_range": (5, 10),
         "max_child_count": 4,
-        "taglen_range": (2, 5),
 
-        "attr_count_range": (0, 4),
+        "tag_gen_params": (50, (2, 5)),
+        "attr_gen_params": (50, (0, 4)),
+        "attr_value_gen_params": (50, (1, 20)),
+
         "attr_len_range": (2, 5),
-        "attr_value_len_range": (1, 20),
-
         "text_len_range": (-10, 7),
         "tail_len_range": (-20, 10),
     }
@@ -288,12 +288,12 @@ def trainingProgressTest(testNo, appConfig, modelArgs, device):
     generatorArgs = {
         "node_count_range": (2, 6),
         "max_child_count": 4,
-        "taglen_range": (2, 5),
+
+        "tag_gen_params": (50, (2, 5)),
+        "attr_gen_params": (50, (2, 5)),
+        "attr_value_gen_params": (50, (1, 7)),
 
         "attr_count_range": (0, 4),
-        "attr_len_range": (2, 5),
-        "attr_value_len_range": (1, 7),
-
         "text_len_range": (-10, 7),
         "tail_len_range": (-20, 10),
     }

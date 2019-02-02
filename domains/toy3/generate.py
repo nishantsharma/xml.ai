@@ -64,12 +64,12 @@ def generate_dataset(rootFolder, datasetName, treeCount):
     generatorArgs = {
         "node_count_range": (2, 5),
         "max_child_count": 3,
-        "taglen_range": (1, 3),
+
+        "tag_gen_params": (30, (1, 3)), # (tag Count, (min tag length, max tag length))
+        "attr_gen_params": (20, (1, 3)), # (attr Count, (min attr length, max attr length))
+        "attr_value_gen_params": (30, (1, 3)), # (attr value Count, (min attr value length, max attr value length))
 
         "attr_count_range": (0, 2),
-        "attr_len_range": (1, 3),
-        "attr_value_len_range": (1, 3),
-
         "text_len_range": (-10, 3),
         "tail_len_range": (-20, 3),
     }

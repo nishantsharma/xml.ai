@@ -10,10 +10,10 @@ inference and checkpoints etc.  This is an alpha release. We appreciate any kind
 # Key Features 
 
 1) Hierarchical flow of information suited for XML, instead of linear flow in typical seq2seq models.
-2) Use of attention to find the appropriate character position and XML node to focus upon.
-3) Use of GRU for encoding and decoding.
+2) Use of attention to find the appropriate character position/XML node/node attribute to focus upon.
+3) Use of GRU RNN for encoding and decoding.
 4) Beam decoding.
-5) GPU Acceleration of performance critical components.
+5) Custom GPU implementation of performance critical modules.
 6) Tensorboard integration(over pytorch tensors).
 
 # Installation
@@ -50,9 +50,9 @@ To continue last training run for a specific domain.
 For help.
     ./scripts/train.sh -h
 
-### Evaluate  
-To evalaute latest trained domain. 
-    ./scripts/evaluate.sh
+### Evaluate a model 
+To evalaute latest trained model of a domain. 
+    ./scripts/evaluate.sh --domain <domainId>
 
 To evaluate on domain toy1.
     ./scripts/evaluate.sh --domain toy1
@@ -77,7 +77,9 @@ Checkpoints are organized by domainId, runNo, modelSchemaNo and function as show
       +-- testing/
             +-- runFolders/
                   +-- run.00000.toy1_0/
+                        +-- Chk*/
                   +-- run.<runNo>.<domainId>_<modelSchemaNo>/
+                        +-- Chk*/
       +-- inputs/
             +-- <domainId>/
                   +-- dev/
@@ -90,11 +92,15 @@ Checkpoints are organized by domainId, runNo, modelSchemaNo and function as show
                         +-- dataIn*.xml
                         +-- dataOut*.xml
 
-The sample script by default saves checkpoints in the `experiment` folder of the root directory.  Look at the usages of the sample code for more options, including resuming and loading from checkpoints.
+The sample script by default saves checkpoints in the `inputs/<domainId>` folder of the root directory. Look
+at the usages of the sample code for more options, including resuming and loading from checkpoints.
 
 # Roadmap
 The goal of this library is facilitating the development of XML-to-XML transformation techniques and applications.
-While constantly improving the quality of code and documentation, we will focus on the following items:
+Currently the greatest challenge is that XML files are quit big and seq2seq decoders take too much time training
+overthem.
+
+While constantly improving the performnce, quality of code and documentation, we will also focus on the following items:
 
 * Identification and evaluation with benchmarks;
 * Provide more flexible model options, improving the usability of the library;
