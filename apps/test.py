@@ -78,6 +78,49 @@ def smallDataTest(testNo, appConfig, modelArgs, device):
     # Run tests.
     trainer.train(test_data)
 
+def createDataDebugHook(hier2hierBatch, dataStagesToDebug):
+    def debugHook(tensor, indexKind, prefix=None, indexList=None):
+        kind = kind.lower()
+        if kind == "tdollist":
+            tensorList = tensor
+            for symIndex, tensorByTdol in enumerate(tensorList):
+                dataStagesToDebug.append(splitByToi(
+                    tensorByTdol,
+                    hier2hierBatch.tdol2Toi,
+                    hier2hierBatch.sampleCount,
+                    "{0}@".format(symIndex),
+                ))
+        else:
+            if kind == "gndtol":
+                indexMapper = hier2hierBatch.gndtol2Toi
+            elif kind == "ndfo":
+                indexMapper = hier2hierBatch.ndfo2Toi
+            elif kind == "ndac":
+                indexMapper = hier2hierBatch.ndac2Toi
+            elif kind == "avdl":
+                indexMapper = hier2hierBatch.avdl2Toi
+            elif kind == "avdlp":
+                indexMapper = hier2hierBatch.avdlp2Toi
+            elif kind == "ttdlp":
+                indexMapper = hier2hierBatch.ndtlp2Toi2[False]
+            elif kind == "tldlp":
+                indexMapper = hier2hierBatch.ndtlp2Toi2[True]
+            else:
+                raise NotImplementedError()
+            if indexList is not None:
+                indexMapper  = [ int(indexMapper[index]) for index in indexList ]
+
+            dataStagesToDebug.append(
+                splitByToi(
+                    posEncodedVecsByGndtol,
+                    indexMapper,
+                    hier2hierBatch.sampleCount,
+                    prefix=prefix
+                )
+            )
+    return debugHook
+
+
 def noInteractionTest(testNo, appConfig, modelArgs, device):
     # Instantiate trainer object.
     modelArgs = deepcopy(modelArgs)
@@ -130,7 +173,9 @@ def noInteractionTest(testNo, appConfig, modelArgs, device):
         batch_generator = batch_iterator.__iter__(mode=appConfig.mode)
         test_data_batch = list(batch_generator)[0]
 
-        dataDebugStages = trainer.model(test_data_batch, debugDataStages=True)
+        dataDebugStages = []
+        dataDebugHook = createDataDebugHook(test_data_batch, dataDebugStages)
+        trainer.model(test_data_batch, dataDebugHook=dataDebugHook)
 
         curGraphNodeCount = len([gni for gni, toi in enumerate(test_data_batch.gni2Toi) if toi==watchPosition])
         if prevGraphNodeCount is not None:

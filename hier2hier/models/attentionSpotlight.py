@@ -61,7 +61,7 @@ class AttentionSpotlight(ModuleBase):
                 tensorBoardHook,
                 beamMode=False,
                 spotlightThreshold=None,
-                debugPack=None,
+                dataDebugHook=None,
                 debugAttention=False,
     ):
         """
@@ -96,9 +96,6 @@ class AttentionSpotlight(ModuleBase):
                 Data: Vectors representing the query.
 
         """
-        if debugPack is not None:
-            (dataStagesToDebug, hier2hierBatch) = debugPack
-
         if spotlightThreshold is None:
             spotlightThreshold = self.spotlightThreshold
 
@@ -110,14 +107,7 @@ class AttentionSpotlight(ModuleBase):
             beamMode=beamMode,
         )
         tensorBoardHook.add_histogram("preExpAattentionFactorsByPrevSLI", preExpAattentionFactorsByPrevSLI)
-        if debugPack is not None:
-            prevSli2Toi  = [ int(hier2hierBatch.tdol2Toi[tdol]) for tdol in prevSli2Tdol ]
-            # Use ndfo2Toi partition.
-            dataStagesToDebug.append(splitByToi(
-                attentionFactorsByPrevSLI,
-                prevSli2Toi,
-                hier2hierBatch.sampleCount
-            ))
+        dataDebugHook(attentionFactorsByPrevSLI, "tdol", indexList=prevSli2Tdol)
 
         sliDimension = 1 if beamMode else 0
 
@@ -129,14 +119,8 @@ class AttentionSpotlight(ModuleBase):
                 beamMode=beamMode,
             )
 
-            if debugPack is not None:
-                # Use ndfo2Toi partition.
-                dataStagesToDebug.append(splitByToi(
-                    maxAttentionFactorByTDOL,
-                    hier2hierBatch.tdol2Toi,
-                    hier2hierBatch.sampleCount
-                ))
-
+            dataDebugHook(maxAttentionFactorByTDOL, "tdol")
+ 
             # As an optimization, we don't look at members already seen.
             alreadySeenSli2Gndtol = prevSli2Gndtol
             discoveredNewGndtol = prevSli2Gndtol
@@ -236,13 +220,7 @@ class AttentionSpotlight(ModuleBase):
             curSli2Gndtol = torch.cat(curSli2Gndtol)
             attentionFactorsByCurSli = torch.cat(attentionFactorsByCurSli, dim=sliDimension)
 
-            if debugPack is not None:
-                curSli2Toi  = [ hier2hierBatch.gndtol2Toi[tdol] for tdol in curSli2Gndtol ]
-                dataStagesToDebug.append(splitByToi(
-                    attentionFactorsByCurSli,
-                    curSli2Toi,
-                    hier2hierBatch.sampleCount
-                ))
+            dataDebugHook(attentionFactorsByCurSli, "gndtol", indexList=curSli2Gndtol)
 
             # Sort all results.
             curSli2Gndtol, sortingPermutation = torch.sort(curSli2Gndtol)

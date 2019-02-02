@@ -57,16 +57,9 @@ class HierarchyPropagator(ModuleBase):
             childSelectorByNdfoList,
             decreasingFanoutsFactor,
             tensorBoardHook,
-            debugPack=None,
+            dataDebugHook=None,
     ):
-        if debugPack is not None:
-            (dataStagesToDebug, hier2hierBatch) = debugPack
-            # Use ndfo2Toi partition.
-            dataStagesToDebug.append(splitByToi(
-                propagatedNodeInfoByNdfo,
-                hier2hierBatch.ndfo2Toi,
-                hier2hierBatch.sampleCount
-            ))
+        dataDebugHook(propagatedNodeInfoByNdfo, "ndfo")
 
         # Apply input dropout. Better to do after resize as input bits are non-uniform.
         propagatedNodeInfoByNdfo = self.input_dropout(propagatedNodeInfoByNdfo)
@@ -75,13 +68,7 @@ class HierarchyPropagator(ModuleBase):
         if not self.disable_batch_norm and propagatedNodeInfoByNdfo.shape[0] > 1:
             propagatedNodeInfoByNdfo = self.batchNormPropagatedInfo(propagatedNodeInfoByNdfo)
 
-        if debugPack is not None:
-            # Use ndfo2Toi partition.
-            dataStagesToDebug.append(splitByToi(
-                propagatedNodeInfoByNdfo,
-                hier2hierBatch.ndfo2Toi,
-                hier2hierBatch.sampleCount
-            ))
+        dataDebugHook(propagatedNodeInfoByNdfo, "ndfo")
 
         decreasingFanoutsFactor = decreasingFanoutsFactor.view(
             list(decreasingFanoutsFactor.shape) + [1]

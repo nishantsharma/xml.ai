@@ -243,11 +243,9 @@ class OutputDecoder(ModuleBase):
             beam_count=None,
             clip_output_len=None,
             debugAttention=False,
-            debugPack=None,
+            dataDebugHook=None,
             hier2hierBatch=None,
         ):
-        if debugPack is not None:
-            (dataStagesToDebug, hier2hierBatch) = debugPack
 
         if targetOutputLengthsByTdol is not None:
             max_output_len = int(max(targetOutputLengthsByTdol))
@@ -259,14 +257,7 @@ class OutputDecoder(ModuleBase):
 
         # Dropout parts of data for robustness.
         posEncodedVecsByGndtol = self.input_dropout(posEncodedVecsByGndtol)
-
-        if debugPack is not None:
-            # Use ndfo2Toi partition.
-            dataStagesToDebug.append(splitByToi(
-                posEncodedVecsByGndtol,
-                hier2hierBatch.gndtol2Toi,
-                hier2hierBatch.sampleCount
-            ))
+        dataDebugHook(posEncodedVecsByGndtol, "gndtol")
 
         if collectOutput is None:
             collectOutput = not(self.training)
@@ -333,13 +324,7 @@ class OutputDecoder(ModuleBase):
             if debugAttention:
                 debugAttentionFactorsImg = []
 
-        if debugPack is not None:
-            # Use ndfo2Toi partition.
-            dataStagesToDebug.append(splitByToi(
-                posEncodedVecsByGndtol,
-                hier2hierBatch.gndtol2Toi,
-                hier2hierBatch.sampleCount
-            ))
+        dataDebugHook(posEncodedVecsByGndtol, "gndtol")
 
         with blockProfiler("Loop"):
             for (outputIndexLimit, sampleIndexLimit) in  dimSqueezePoints:
@@ -380,14 +365,7 @@ class OutputDecoder(ModuleBase):
                         # We are crossing output index limit. So, this loop is over.
                         break
 
-                    if debugPack is not None:
-                        # Use ndfo2Toi partition.
-                        dataStagesToDebug.append(splitByToi(
-                            curGruOutput,
-                            hier2hierBatch.tdol2Toi,
-                            hier2hierBatch.sampleCount,
-                            prefix="{0}@".format(symbolIndex),
-                        ))
+                    dataDebugHook(curGruOutput, "tdol", prefix="{0}@".format(symbolIndex))
 
                     # Compute next attention.
                     with blockProfiler("ATTENTION-DECODE"):
@@ -413,7 +391,7 @@ class OutputDecoder(ModuleBase):
                                 tensorBoardHook,
                                 beamMode=False,
                                 debugAttention=debugAttention,
-                                debugPack=None,#debugPack,
+                                dataDebugHook=None,#dataDebugHook
                             )
                             if debugAttention: 
                                debugAttnFactorsByGoi = debugAttnFactorsByGndtol[goi2Gndtol]
@@ -427,14 +405,7 @@ class OutputDecoder(ModuleBase):
                             attnReadyInfoCollapsedByTdol  = posEncodedVecsByGndtol[sli2Gndtol]
                     # print("Selected indices: {0}".format(sli2Gndtol.shape[0]))
 
-                    if debugPack is not None:
-                        # Use ndfo2Toi partition.
-                        dataStagesToDebug.append(splitByToi(
-                            attnReadyInfoCollapsedByTdol,
-                            hier2hierBatch.tdol2Toi,
-                            hier2hierBatch.sampleCount,
-                            prefix="{0}@".format(symbolIndex),
-                        ))
+                    dataDebugHook(attnReadyInfoCollapsedByTdol, "tdol", prefix="{0}@".format(symbolIndex))
 
                     with blockProfiler("CATVIEW"):
                         curGruInput = torch.cat([attnReadyInfoCollapsedByTdol, curSymbolTensor], -1)
@@ -452,14 +423,7 @@ class OutputDecoder(ModuleBase):
                     with blockProfiler("GRUCELL1"):
                         curGruState = curGruState.contiguous()
 
-                    if debugPack is not None:
-                        # Use ndfo2Toi partition.
-                        dataStagesToDebug.append(splitByToi(
-                            curGruState.permute(1,0,2),
-                            hier2hierBatch.tdol2Toi,
-                            hier2hierBatch.sampleCount,
-                            prefix="{0}@".format(symbolIndex),
-                        ))
+                    dataDebugHook(curGruState.permute(1,0,2), "tdol", prefix="{0}@".format(symbolIndex))
 
                     # Cycle RNN state.
                     with blockProfiler("GRUCELL2"):
@@ -474,14 +438,7 @@ class OutputDecoder(ModuleBase):
                         generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.output_vocab))
                         outputSymbolsByTdolList.append(generatedSymbolTensor)
 
-                    if debugPack is not None:
-                        # Use ndfo2Toi partition.
-                        dataStagesToDebug.append(splitByToi(
-                            generatedSymbolTensor,
-                            hier2hierBatch.tdol2Toi,
-                            hier2hierBatch.sampleCount,
-                            prefix="{0}@".format(symbolIndex),
-                        ))
+                    dataDebugHook(generatedSymbolTensor, "tdol", prefix="{0}@".format(symbolIndex))
 
                     # Compute next symbol list.
                     if collectOutput:
