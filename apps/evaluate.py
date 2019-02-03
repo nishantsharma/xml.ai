@@ -35,7 +35,13 @@ appConfig, modelArgs = loadConfig(AppMode.Evaluate)
 
 # Setup logging
 LOG_FORMAT = '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'
-logging.basicConfig(format=LOG_FORMAT, level=getattr(logging, appConfig.log_level.upper()))
+runFolder = appConfig.training_dir + appConfig.runFolder
+os.makedirs(runFolder, exist_ok=True)
+logging.basicConfig(
+        filename=runFolder + "evaluation.log",
+        format=LOG_FORMAT,
+        level=getattr(logging, appConfig.log_level.upper()))
+
 
 # Log config info.
 logging.info("Application Config: {0}".format(json.dumps(vars(appConfig), indent=2)))
