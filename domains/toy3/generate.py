@@ -52,29 +52,13 @@ def transformXml(outNode):
     return outNode
 
 
-def generate_dataset(rootFolder, datasetName, treeCount):
+def generate_dataset(rootFolder, datasetName, generatorArgs, vocabs, treeCount):
     """
     Generates input and output XML files for toy1 dataset.
     """
     path = os.path.join(rootFolder, datasetName)
     if not os.path.exists(path):
         os.mkdir(path)
-
-    # Create test data.
-    generatorArgs = {
-        "node_count_range": (2, 5),
-        "max_child_count": 3,
-
-        "tag_gen_params": (30, (1, 3)), # (tag Count, (min tag length, max tag length))
-        "attr_gen_params": (20, (1, 3)), # (attr Count, (min attr length, max attr length))
-        "attr_value_gen_params": (30, (1, 3)), # (attr value Count, (min attr value length, max attr value length))
-
-        "attr_count_range": (0, 2),
-        "text_len_range": (-10, 3),
-        "tail_len_range": (-20, 3),
-    }
-
-    vocabs = generateVocabs(generatorArgs)
 
     # generate data files in loop.
     for index in range(treeCount):
@@ -99,6 +83,23 @@ if __name__ == '__main__':
     if not os.path.exists(toy_dir):
         os.mkdir(toy_dir)
 
-    generate_dataset(toy_dir, 'train', int(0.80*args.count))
-    generate_dataset(toy_dir, 'dev', int(0.10*args.count))
-    generate_dataset(toy_dir, 'test', int(0.10*args.count))
+
+    # Create test data.
+    generatorArgs = {
+        "node_count_range": (2, 5),
+        "max_child_count": 3,
+
+        "tag_gen_params": (30, (1, 3)), # (tag Count, (min tag length, max tag length))
+        "attr_gen_params": (20, (1, 3)), # (attr Count, (min attr length, max attr length))
+        "attr_value_gen_params": (30, (1, 3)), # (attr value Count, (min attr value length, max attr value length))
+
+        "attr_count_range": (0, 2),
+        "text_len_range": (-10, 3),
+        "tail_len_range": (-20, 3),
+    }
+
+    vocabs = generateVocabs(generatorArgs)
+
+    generate_dataset(toy_dir, 'train', generatorArgs, vocabs, int(0.80*args.count))
+    generate_dataset(toy_dir, 'dev', generatorArgs, vocabs, int(0.10*args.count))
+    generate_dataset(toy_dir, 'test', generatorArgs, vocabs, int(0.10*args.count))
