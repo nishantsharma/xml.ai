@@ -11,23 +11,9 @@ from attrdict import AttrDict
 import torch
 import torch.nn.utils.rnn as rnn
 
-from hier2hier.util import invertPermutation, blockProfiler, methodProfiler, lastCallProfile, longTensor, AppMode
+from hier2hier.util import (invertPermutation, blockProfiler, methodProfiler,
+            cached_property_profiler, lastCallProfile, longTensor, AppMode
 from hier2hier.dataset import Hier2HierIterator
-
-class cached_property_profiler(object):
-    def __init__(self, func):
-        self.func = func
-
-    def __get__(self, obj, cls):
-        if obj is None:
-            return self
-        name = self.func.__name__
-        
-        if not name in obj.__dict__:
-            with blockProfiler(name):
-                obj.__dict__[name] = self.func(obj)
-
-        return obj.__dict__[name]
 
 class Hier2hierBatch(object):
     def __init__(self, torchBatch, device):
@@ -54,7 +40,8 @@ class Hier2hierBatch(object):
                     AVDL: Batch Attribute Values in decreasing length order.
                     AOI: Attributes in original input order. Used for debugging.
                 For Text:
-                    TtDLP: By decreasing text length.
+                    TtDLP: Positions within packed text. Packing involves combining text
+                            already in decreasing length order.
                     TtOIP: Text of nodes in NOI order, packed.
                 For Tail:
                     TlDLP: By decreasing tail length.

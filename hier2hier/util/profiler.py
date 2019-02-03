@@ -1,5 +1,5 @@
 """
-File containing methods which help profile python code..
+File containing methods which help profile python code.
 """
 import os, time, contextlib, requests, functools, warnings, json
 from collections import OrderedDict
@@ -179,3 +179,22 @@ class blockProfiler(object):
         # Curnode building complete. Now remove from stack and insert it under the calling last node.
         profilingData.pop()
         profilingData[-1]["BreakUp"].append(self.curNode)
+
+class cached_property_profiler(object):
+    """
+    Combines @cached_property decoratory with @methodProfiler decorator.
+    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return self
+        name = self.func.__name__
+        
+        if not name in obj.__dict__:
+            with blockProfiler(name):
+                obj.__dict__[name] = self.func(obj)
+
+        return obj.__dict__[name]
+

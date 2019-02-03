@@ -1,3 +1,6 @@
+"""
+This module implements a generic beam search.
+"""
 import torch
 from hier2hier.util import (onehotencode, blockProfiler, methodProfiler, lastCallProfile,
                             batched_index_select)

@@ -1,3 +1,11 @@
+"""
+In regular seq2seq, information flows linearly from one sequence position to another.
+In hier2hier, information flows linearly within text positions and then across the
+XML connectivity graph.
+
+This module implements information flow through connectivity graph connecting XML nodes
+to their neighbors.
+"""
 from __future__ import unicode_literals, print_function, division
 from io import open
 from collections import OrderedDict
@@ -59,6 +67,31 @@ class HierarchyPropagator(ModuleBase):
             tensorBoardHook,
             dataDebugHook=None,
     ):
+        """
+        Implements information flow through attributes.
+        Inputs:
+            propagatedNodeInfoByNdfo
+                Information propagated upto each XML node, in the NDFO order.
+            parentSelectorByNdfo:
+                Each index position ndfo within parentSelectorByNdfo corresponds to
+                an XML node. The value at index position parentNdfo links the XML node
+                at index position ndfo with its parent node at index position parentNdfo.
+            childSelectorByNdfoList
+                A list of childSelectorByNdfo
+                childSelectorByNdfo:
+                    Each index position ndfo within childSelectorByNdfo corresponds to
+                    an XML node. The value childNdfo at index position ndfo links the XML
+                    node at index position ndfo with its child XML node at index position
+                    childNdfo.
+            decreasingFanoutsFactor:
+                A tensor containing number of children of an XML node.
+                Provided in decreasing order of values(i.e. in NDFO order).
+                Used as Scaling factors.
+        Outputs:
+            propagatedNodeInfoByNdfo:
+                Information(*also incorporating info from neighbors*) propagated upto each
+                XML node, in the NDFO order.
+        """
         dataDebugHook(propagatedNodeInfoByNdfo, "ndfo")
 
         # Apply input dropout. Better to do after resize as input bits are non-uniform.
@@ -67,12 +100,12 @@ class HierarchyPropagator(ModuleBase):
         # Apply batch norm.
         if not self.disable_batch_norm and propagatedNodeInfoByNdfo.shape[0] > 1:
             propagatedNodeInfoByNdfo = self.batchNormPropagatedInfo(propagatedNodeInfoByNdfo)
-
         dataDebugHook(propagatedNodeInfoByNdfo, "ndfo")
 
         decreasingFanoutsFactor = decreasingFanoutsFactor.view(
             list(decreasingFanoutsFactor.shape) + [1]
         )
+        
         # Run propagation loop.
         for i in range(self.node_info_propagator_stack_depth):
             # Prepare parent info for propagation into new nodeInfoPropagated.

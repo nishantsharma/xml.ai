@@ -1,3 +1,6 @@
+"""
+A simple wrapper around torch RNN modules.
+"""
 from __future__ import unicode_literals, print_function, division
 from io import open
 import unicodedata

@@ -1,3 +1,6 @@
+"""
+Implements base class for all modules implemented within the Hier2hier scope.
+"""
 import torch.nn as nn
         
 class ModuleBase(nn.Module):

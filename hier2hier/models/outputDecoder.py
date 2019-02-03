@@ -1,3 +1,6 @@
+"""
+This module implements an attentional decoder for transforming an input XML to output.
+"""
 from __future__ import unicode_literals, print_function, division
 import unicodedata, string, re, random, sys, copy, math
 from orderedattrdict import AttrDict
@@ -93,123 +96,6 @@ class OutputDecoder(ModuleBase):
         self.attentionSpotlight.reset_parameters(device)
         nn.init.normal_(self.initGruOutput)
         self.buildInitGruState.reset_parameters()
-
-    @torch.no_grad()
-    def test_forward(self,
-            nodeInfoPropagatedTensor,
-            targetOutputsByTdol=None,
-            targetOutputLengthsByTdol=None,
-            teacherForcedSelections=None):
-        # Dropout parts of data.
-        nodeInfoPropagatedTensor = self.input_dropout(nodeInfoPropagatedTensor)
-
-        sampleCount = len(nodeInfoPropagatedTensor)
-        self.training = targetOutputsByTdol is not None
-
-        outputSymbolsTensor = []
-        outputSymbols = []
-        for treeIndex in range(sampleCount):
-            # Start symbol.
-            curSymbol = self.sos_id
-            curSymbolTensor = torch.tensor(
-                [onehotencode(len(self.output_vocab), curSymbol)],
-                device=self.device)
-
-            # Initial gruOutput to emulate.
-            curGruOutput = self.initGruOutput.view(1, 1, -1)
-
-            # Initialize curGruState to None. It is updated within the loop, again.
-            curGruState = None
-
-            # Check if teaching is being forced.
-            if not self.training or teacherForcedSelections is None:
-                teacherForced = False
-            else:
-                teacherForced = teacherForcedSelections[treeIndex]
-
-            treeOutputSymbolsTensor = [ curSymbolTensor ]
-            treeOutputSymbols = [ curSymbol ]
-
-            # Get the propagated node info of the current tree.
-            nodeInfosPropagated = nodeInfoPropagatedTensor[treeIndex]
-
-            maxSymbolIndex = -1
-            for symbolIndex in range(1, self.max_output_len):
-
-                use("Use attentionSpotlight to get new propagatedInfoToAttend.") 
-                # Compute next attention.
-                curAttention = self.decodeAttention(
-                    nodeInfosPropagated.view(1, self.max_node_count, -1),
-                    curGruOutput)
-
-                # Compute node info summary to use in computation.
-                attnReadyInfoCollapsedByTdol = torch.mm(
-                        curAttention,
-                        nodeInfosPropagated,
-                    ).view(1, -1)
-
-                # Build GRU Input.
-                curGruInput = torch.cat([attnReadyInfoCollapsedByTdol, curSymbolTensor], -1)
-                curGruInput = curGruInput.view(1, 1, self.gruInputLen)
-
-                # For first iteration, we also need to build GRU State.
-                if curGruState is None:
-                    curGruState = self.buildInitGruState(attnReadyInfoCollapsedByTdol)
-                    curGruState = curGruState.view(
-                        self.output_decoder_stack_depth,
-                        1,
-                        self.output_decoder_state_width,
-                    )
-
-                # RUn GRU logic.
-                curGruOutput, curGruState = self.gruCell(curGruInput, curGruState)
-
-                # Compute next symbol tensor.
-                generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
-                generatedSymbolTensor = generatedSymbolTensor.view(1, len(self.output_vocab))
-                treeOutputSymbolsTensor.append(generatedSymbolTensor)
-
-                # Compute next symbol.
-                if not self.training:
-                    generatedSymbol = int(generatedSymbolTensor.topk(1)[1])
-                    treeOutputSymbols.append(generatedSymbol)
-
-                # Loop completion checks.
-                if ((self.training and symbolIndex == targetOutputLengthsByTdol[treeIndex]-1)
-                        or (not self.training and generatedSymbol == self.eos_id)):
-                    paddingNeeded = self.max_output_len - len(treeOutputSymbolsTensor)
-                    padTensor = torch.tensor([
-                        onehotencode(
-                            len(self.output_vocab),
-                            self.pad_id
-                        )])
-                    treeOutputSymbolsTensor += [padTensor for _ in range(paddingNeeded)]
-
-                    maxSymbolIndex = max(maxSymbolIndex, symbolIndex)
-                    break
-
-                ###################################################################
-                ##### LOOP ITERATION COMPLETE. Now preping for next iteration #####
-                ###################################################################
-                if teacherForced:
-                    curSymbolTensor = onehotencode(
-                        len(self.output_vocab),
-                        int(targetOutputsByTdol[treeIndex, symbolIndex]))
-                    curSymbolTensor = torch.tensor([curSymbolTensor])
-                else:
-                    curSymbolTensor = generatedSymbolTensore
-
-            treeOutputSymbolsTensor = torch.cat(treeOutputSymbolsTensor)
-            outputSymbolsTensor.append(treeOutputSymbolsTensor)
-            outputSymbols.append(treeOutputSymbols)
-
-        outputSymbolsTensor = torch.cat(outputSymbolsTensor).view(
-            sampleCount,
-            int(self.max_output_len),
-            -1
-            )
-
-        return outputSymbolsTensor
 
     def decodeSymbol(self, curGruOutput):
         symbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
@@ -497,6 +383,31 @@ class OutputDecoder(ModuleBase):
                 tensorBoardHook,
                 beam_count,
     ):
+        """
+        This module implements beam search over all attention ready positions(text indices as 
+        well as XML nodes and attributes) in an XML file. 
+
+        Inputs:
+            sampleCount: Number of samples for which search is being undertaken.
+            posNbrhoodGraphByGndtol:
+                Attention ready positions are represented by this graph.
+                Tuple of two tensors, (nbrs, nbrCounts).
+                At index gndtol, nbrs[gndtol] gives GNDTOL indices of all neighbors of graph
+                    node at index gndtol.
+                nbrCounts[gndtol] gives number of neighbors of node at GNDTOL index gndtol.
+            attnReadyVecsByGndtol:
+                Each vector attnReadyVecsByGndtol[gndtol] at index gndtol gives the vector
+                which can be dot-ted with a vector derived from decoder state to determine
+                attention factors.
+            initSpotlight:
+                Attention spotlight is a subset of graph nodes which we are currently attending to.
+                For each symbol decoded, they change.
+                initSpotlight is used as the initial subset.
+            posEncodedVecsByGndtol
+                Each vector attnReadyVecsByGndtol[gndtol] at index gndtol helps determine the
+                next symbol we end up decoding. Similar to attnReadyVecsByGndtol, but used
+                for decoding instead of attention.
+        """
         # Initial spotlight indices.
         sli2Gndtol = initSpotlight 
 

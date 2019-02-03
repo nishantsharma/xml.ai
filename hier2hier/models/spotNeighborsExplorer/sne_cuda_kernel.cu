@@ -1,3 +1,10 @@
+/*
+    CUDA implementaiton of Spot Neighbors Explorer.
+
+    In SpotNeighborsExplorer, we explore neighbors of the attention spotlight for increasing
+    attention factors. If the attentoin factors are above a certain threshold, we will include
+    them in the next iteration of attention spotlight. 
+*/
 #include <ATen/ATen.h>
 
 #include <cuda.h>

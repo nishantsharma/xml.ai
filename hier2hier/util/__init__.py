@@ -4,8 +4,8 @@ from enum import IntEnum
 
 import torch
 
-from .profiler import (lastCallProfile, appendProfilingData, methodProfiler,
-                        blockProfiler, summarizeLabelNodes, appendProfilingLabel)
+from .profiler import (lastCallProfile, appendProfilingData, methodProfiler, blockProfiler,
+            cached_property_profiler, summarizeLabelNodes, appendProfilingLabel)
 from .tensorboard import TensorBoardHook
 
 nullTensorBoardHook = TensorBoardHook(0)

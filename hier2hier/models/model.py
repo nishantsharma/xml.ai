@@ -1,3 +1,6 @@
+"""
+This module implements an efficient Hier2hier module for learning XML transformation.
+"""
 from __future__ import unicode_literals, print_function, division
 from collections import OrderedDict
 from io import open
@@ -23,7 +26,6 @@ from .outputDecoder import OutputDecoder
 curSchemaVersion = 0
 
 class Hier2hier(ModuleBase):
-    n = 0
     def __init__(self,
             modelArgs,
             debug,

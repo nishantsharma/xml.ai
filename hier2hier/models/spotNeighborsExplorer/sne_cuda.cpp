@@ -1,3 +1,10 @@
+/*
+    CPP component of CUDA implementaiton of Spot Neighbors Explorer.
+
+    In SpotNeighborsExplorer, we explore neighbors of the attention spotlight for increasing
+    attention factors. If the attentoin factors are above a certain threshold, we will include
+    them in the next iteration of attention spotlight. 
+*/
 #include <torch/extension.h>
 #include <vector>
 #include <thrust/tuple.h>

@@ -1,3 +1,8 @@
+"""
+AttentionSpotlight is an implementation of attention mechanism over connectivity graph
+of positions within an XML. All XML nodes, attributes and positions within any text field
+are potential positions worth attending.
+"""
 from __future__ import unicode_literals, print_function, division
 import unicodedata
 import string, re, random, sys, copy, math

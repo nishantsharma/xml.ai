@@ -1,4 +1,8 @@
 """
+In SpotNeighborsExplorer, we explore neighbors of the attention spotlight for increasing
+attention factors. If the attentoin factors are above a certain threshold, we will include
+them in the next iteration of attention spotlight. 
+
 SNE = SpotNeighborsExplorer
 """
 import os
@@ -10,11 +14,28 @@ from torch.utils.cpp_extension import load
 path = os.path.dirname(__file__)
 
 from .sne_python import SpotNeighborsExplorerPy
+# Only load CPP/CUDA/TS modules if needed.
 SpotNeighborsExplorerCpp = None
 SpotNeighborsExplorerCuda = None
 SpotNeighborsExplorerTS = None
 
 class SpotNeighborsExplorer(torch.nn.Module):
+    """
+    This module is part of an optimization of attention mechanism. In the regular attention
+    (https://arxiv.org/abs/1502.03044), all positions in the input sequence are part of the
+    linear combination. That is what is called global attention. 
+    In hier2hier, sequence positions are replaced by graph positions.
+    Here, we make an approximation called local attention.
+    We ignore some of the sequence positions with small attention factors from consideration.
+
+    Attention Spotlight:
+        The graph positions which are currently under spotlight are collectively called
+        attention spotlight.
+
+    Spot Neighbors Exploration:
+        Here we explore neighbors of the spotlight for attention factors. If the factors
+        are high enough, we will include them into next spotlight. 
+    """
     def __init__(self, impl_selection=None, device=None):
         global SpotNeighborsExplorerCpp, SpotNeighborsExplorerCuda, SpotNeighborsExplorerTS
         super().__init__()

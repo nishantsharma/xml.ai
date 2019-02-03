@@ -1,3 +1,11 @@
+"""
+In regular seq2seq, information flows linearly from one sequence position to another.
+In hier2hier, information flows linearly within text positions and then across the
+XML connectivity graph.
+
+This module implements information flow through attributes.
+"""
+
 from __future__ import unicode_literals, print_function, division
 from io import open
 import unicodedata
@@ -41,6 +49,30 @@ class AttrInfoPropagator(ModuleBase):
         decreasingAttrCountsFactor,
         avdl2Ndac,
     ):
+        """
+        Implements information flow through attributes.
+        Inputs:
+            encodedAttrsByAvdl:
+                Encoded attributes in AVDL order.
+            nodeInfoPropagatedByNdac
+                Information propagated upto each XML node, in the NDAC order.
+            avdlAttrSelectorsListByNdac
+                A list of avdlAttrSelectorsByNdac
+                avdlAttrSelectorsByNdac:
+                    Each index position ndac within avdlAttrSelectorsByNdac corresponds to
+                    an XML node. The value avdl at index position ndac links the XML attribute
+                    at index position avdl with XML node at index position ndac.
+            decreasingAttrCountsFactor:
+                A tensor containing number of attributes of an XML node.
+                Provided in decreasing order of values(i.e. in NDAC order).
+                Used as Scaling factors.
+        Outputs:
+            nodeInfoPropagatedByNdac:
+                Information(*including attributes info*) propagated upto each XML node,
+                in the NDAC order.
+            attnReadyAttrInfoByAvdl:
+                Atrribute information in the AVDL order, now ready to be attended to.
+        """
         inputVecLen = nodeInfoPropagatedByNdac.shape[-1]
         # Create attn ready attr infos, directly from GRU over node state and encoded attrs.
         nodeInfoPropagatedByAvdl = nodeInfoPropagatedByNdac[avdl2Ndac]
