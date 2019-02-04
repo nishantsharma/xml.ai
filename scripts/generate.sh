@@ -1,6 +1,7 @@
 #! /bin/sh
 
 export DOMAIN=$1
+shift
 
 if [ -z "$DOMAIN" ]
 then
@@ -16,4 +17,4 @@ export PYTHONPATH=$(pwd)
 
 # N.B.: assumes script is called from parent directory, as described in README.md
 mkdir -p $DOMAIN_DATA_DIR
-python3 -m pdb -c continue $DOMAIN_PATH/generate.py --dir=$DOMAIN_DATA_DIR $GEN_ARGS
+python3 -m pdb -c continue ./apps/generate.py --domain $DOMAIN $@

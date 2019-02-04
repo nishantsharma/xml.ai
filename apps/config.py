@@ -70,6 +70,13 @@ modelArgsGlobalDefaults = {
     "spotlightThreshold": 0.001,
 }
 
+# Global generatorArgs defaults:
+#       Unless a generatorArgs config item is overridden at the command line level or
+#       at the domain level, it is picked up from here.
+generatorArgsGlobalDefaults = {
+    "count": 10000,
+}
+
 def loadConfig(mode):
     """
     Build config objects for application launch instance(appConfig) and model arguments.
@@ -92,18 +99,21 @@ def loadConfig(mode):
                             help='The app domain to use.')
         parser.add_argument('--inputs_root_dir', action='store', dest='inputs_root_dir', default="data/inputs/",
                             help='Path to folder containing dev, train and test input data folders.')
-        parser.add_argument('--training_dir', action='store', dest='training_dir',
-                            default='./data/training/' if mode!=AppMode.Test else "./data/testing/",
-                            help='Path to experiment directory.')
-        parser.add_argument("--run", action='store', dest='run', default = None, type = int,
-                            help="Index of the run that should be operated upon.")
-        parser.add_argument('--resume', default=False if mode==AppMode.Test else None, type=str2bool3,
-                            help='Indicates if training has to be resumed from the latest checkpoint')
+        if mode in [AppMode.Train, AppMode.Evaluate]:
+            parser.add_argument('--training_dir', action='store', dest='training_dir',
+                                default='./data/training/' if mode!=AppMode.Test else "./data/testing/",
+                                help='Path to experiment directory.')
+            parser.add_argument("--run", action='store', dest='run', default = None, type = int,
+                                help="Index of the run that should be operated upon.")
+
+        if mode in [AppMode.Train, AppMode.Evaluate]:
+            parser.add_argument('--resume', default=False if mode==AppMode.Test else None, type=str2bool3,
+                                help='Indicates if training has to be resumed from the latest checkpoint')
 
         # Testing data folders.
         if mode == AppMode.Evaluate:
             parser.add_argument('--test_dataset', default="test", type=str,
-                            help='Dataset(test/dev/train) to use for evaluateon.')
+                            help='Dataset(test/dev/train) to use for evaluation.')
 
         return parser
 
@@ -113,8 +123,12 @@ def loadConfig(mode):
 
     # Get domain defaults and merge them.
     domainModule = import_module("domains." + basicAppConfig.domain)
-    modelArgsDefaults = AttrDict({ **modelArgsGlobalDefaults, **domainModule.modelArgsDefaults})
     appConfigDefaults = AttrDict({ **appConfigGlobalDefaults, **domainModule.appConfigDefaults})
+    if mode == AppMode.Generate:
+        domainGeneratorModule = import_module("domains." + basicAppConfig.domain + ".generate")
+        generatorArgsDefaults = AttrDict({ **generatorArgsGlobalDefaults, **domainGeneratorModule.generatorArgsDefaults})
+    else:
+        modelArgsDefaults = AttrDict({ **modelArgsGlobalDefaults, **domainModule.modelArgsDefaults})
 
     # Create the parser which parses basic arguments and will also parse the entire kitchen sink, below.
     parser = __basic_arguments_parser(True)
@@ -124,12 +138,17 @@ def loadConfig(mode):
         parser.add_argument("--repetitionCount", type = int, default = 5,
                             help="Number of times to repeat test.")
 
-    # Domain customizable load/store settings.
-    parser.add_argument("--checkpoint_every", type = int, default = appConfigDefaults.checkpoint_every,
-                        help="Number of epochs after which we take a checkpoint.")
-    parser.add_argument("--input_select_percent", type = float, default = None,
-                        help="Percentage of inputs actually to be selected for training. This helps in training"
-                             + " with smaller dataset that what all is available.")
+    if mode in [AppMode.Train]:
+        # Domain customizable load/store settings.
+        parser.add_argument("--checkpoint_every", type = int, default = appConfigDefaults.checkpoint_every,
+                            help="Number of epochs after which we take a checkpoint.")
+        parser.add_argument("--print_every", type = int, default = 10,
+                            help="Print progress information, after every so many batches.")
+
+    if mode in [AppMode.Train, AppMode.Evaluate]:
+        parser.add_argument("--input_select_percent", type = float, default = None,
+                            help="Percentage of inputs actually to be selected for training. This helps in training"
+                                 + " with smaller dataset that what all is available.")
 
     # Randomizaion settings.
     parser.add_argument('--random_seed', dest='random_seed',
@@ -146,116 +165,118 @@ def loadConfig(mode):
     parser.add_argument("--profile",
                         type=str2bool, default=False,
                         help="Set to true to enable profiling info printing mode.")
-    parser.add_argument("--runtests",
-                        type=str2bool, default=False,
-                        help="Set to true to enable unit testing of components.")
-    parser.add_argument("--debugAttention", dest="attention",
-                        type=str2bool, default=False,
-                        help="Debug attention by loggnig it into tensorboard.")
+    if mode in [AppMode.Train, AppMode.Evaluate]:
+        parser.add_argument("--runtests",
+                            type=str2bool, default=False,
+                            help="Set to true to enable unit testing of components.")
+        parser.add_argument("--debugAttention", dest="attention",
+                            type=str2bool, default=False,
+                            help="Debug attention by loggnig it into tensorboard.")
 
-    # Build args needed during training.
-    parser.add_argument("--epochs", type = int,
-                        default = random.randint(1, 10) if mode == AppMode.Test else 400,
-                        help="Number of epochs to train for.")
     parser.add_argument("--batch_size", type = int, default = 1000,
                         help="Batch size for training.")
-    parser.add_argument("--num_samples", type = int, default = None,
-                        help="Number of samples to train on.")
-    parser.add_argument("--print_every", type = int, default = 10,
-                        help="Print progress information, after every so many batches.")
+ 
+    if mode in [AppMode.Train, AppMode.Evaluate]:
+        # Build args needed during training.
+        parser.add_argument("--epochs", type = int,
+                            default = random.randint(1, 10) if mode == AppMode.Test else 400,
+                            help="Number of epochs to train for.")
 
-    # XML Schema params.
-    parser.add_argument("--max_node_count", type = int,
-                        default = modelArgsDefaults.max_node_count,
-                        help="Maximum number of nodes in an XML file.")
-    parser.add_argument("--total_attrs_count", type = int,
-                        default = modelArgsDefaults.total_attrs_count,
-                        help="Total number of known attributes in the schema.")
-    parser.add_argument("--value_symbols_count", type = int,
-                        default = modelArgsDefaults.value_symbols_count,
-                        help="Total number of symbols used in attribute value strings.")
-    parser.add_argument("--max_node_fanout", type = int,
-                        default = modelArgsDefaults.max_node_fanout,
-                        help="Maximum connectivity fanout of an XML node.")
-    parser.add_argument("--max_node_text_len", type = int,
-                        default = modelArgsDefaults.max_node_text_len,
-                        help="Maximum length of text attribute in a node.")
-    parser.add_argument("--max_attrib_value_len", type = int,
-                        default = modelArgsDefaults.max_attrib_value_len,
-                        help="Maximum length of any text attribute value in a node.")
-    parser.add_argument("--max_output_len", type = int,
-                        default = modelArgsDefaults.max_output_len,
-                        help="Maximum length of the output file.")
+        # parser.add_argument("--num_samples", type = int, default = None,
+        #                    help="Number of samples to train on.")
 
-    # Size meta-parameters of the generated neural network.
-    parser.add_argument("--node_text_vec_len", type = int,
-                        default = modelArgsDefaults.node_text_vec_len,
-                        help="Length of encoded vector for node text.")
-    parser.add_argument("--attrib_value_vec_len", type = int,
-                        default = modelArgsDefaults.attrib_value_vec_len,
-                        help="Length of an encoded attribute value.")
-    parser.add_argument("--node_info_propagator_stack_depth", type = int,
-                        default = modelArgsDefaults.node_info_propagator_stack_depth,
-                        help="Depth of the graph layer stack. This determines the number of "
-                        + "hops that information would propagate in the graph inside nodeInfoPropagator.")
-    parser.add_argument("--propagated_info_len", type = int,
-                        default = modelArgsDefaults.propagated_info_len,
-                        help="Length of node information vector, when being propagated.")
-    parser.add_argument("--output_decoder_stack_depth", type = int,
-                        default = modelArgsDefaults.output_decoder_stack_depth,
-                        help="Stack depth of node decoder.")
-    parser.add_argument("--output_decoder_state_width", type = int,
-                        default = modelArgsDefaults.output_decoder_state_width,
-                        help="Width of GRU cell in output decoder.")
-    parser.add_argument("--attentionSubspaceVecLen", type = int,
-                        default = modelArgsDefaults.attentionSubspaceVecLen,
-                        help="Vec length of subspace of attnReadyVecs and decoder hidden state"
-                        + "that is used to comptue attention factors.")
+    if mode in [AppMode.Train, AppMode.Evaluate, AppMode.Test]:
+        # XML Schema params.
+        parser.add_argument("--max_node_count", type = int,
+                            default = modelArgsDefaults.max_node_count,
+                            help="Maximum number of nodes in an XML file.")
+        parser.add_argument("--total_attrs_count", type = int,
+                            default = modelArgsDefaults.total_attrs_count,
+                            help="Total number of known attributes in the schema.")
+        parser.add_argument("--value_symbols_count", type = int,
+                            default = modelArgsDefaults.value_symbols_count,
+                            help="Total number of symbols used in attribute value strings.")
+        parser.add_argument("--max_node_fanout", type = int,
+                            default = modelArgsDefaults.max_node_fanout,
+                            help="Maximum connectivity fanout of an XML node.")
+        parser.add_argument("--max_node_text_len", type = int,
+                            default = modelArgsDefaults.max_node_text_len,
+                            help="Maximum length of text attribute in a node.")
+        parser.add_argument("--max_attrib_value_len", type = int,
+                            default = modelArgsDefaults.max_attrib_value_len,
+                            help="Maximum length of any text attribute value in a node.")
+        parser.add_argument("--max_output_len", type = int,
+                            default = modelArgsDefaults.max_output_len,
+                            help="Maximum length of the output file.")
 
-    # Other meta-parameters for training the neural network.
-    parser.add_argument("--input_dropout_p", type = float,
-                        default = None if basicAppConfig.resume else modelArgsDefaults.input_dropout_p,
-                        help="Input dropout probability.")
-    parser.add_argument("--dropout_p", type = float,
-                        default = None if basicAppConfig.resume else modelArgsDefaults.dropout_p,
-                        help="Dropout probability.")
-    parser.add_argument("--use_attention", type = int,
-                        default = modelArgsDefaults.use_attention,
-                        help="Use attention while selcting most appropriate.")
-    parser.add_argument("--teacher_forcing_ratio", type = int,
-                        default = modelArgsDefaults.teacher_forcing_ratio,
-                        help="Teacher forcing ratio to using during decoder training.")
-    parser.add_argument("--learning_rate", type = float,
-                        default = modelArgsDefaults.learning_rate,
-                        help="Learning rate to use during training.")
-    parser.add_argument('--clip_gradient', type=float,
-                        default=modelArgsDefaults.clip_gradient,
-                        help='gradient clipping')
-    parser.add_argument("--disable_batch_norm", type = str2bool,
-                        default = modelArgsDefaults.disable_batch_norm,
-                        help="Disable batch norm. Needed for running some tests.")
-    parser.add_argument("--enableSpotlight", type = str2bool,
-                        default = modelArgsDefaults.enableSpotlight,
-                        help="Whether to enable spotlight, which is designed to optimize"
-                            + " search.")
-    parser.add_argument("--spotlightThreshold", type = float,
-                        default = modelArgsDefaults.spotlightThreshold,
-                        help="Threshold used to identify encoder positions to be considered"
-                            + "for evaluation.")                        
+        # Size meta-parameters of the generated neural network.
+        parser.add_argument("--node_text_vec_len", type = int,
+                            default = modelArgsDefaults.node_text_vec_len,
+                            help="Length of encoded vector for node text.")
+        parser.add_argument("--attrib_value_vec_len", type = int,
+                            default = modelArgsDefaults.attrib_value_vec_len,
+                            help="Length of an encoded attribute value.")
+        parser.add_argument("--node_info_propagator_stack_depth", type = int,
+                            default = modelArgsDefaults.node_info_propagator_stack_depth,
+                            help="Depth of the graph layer stack. This determines the number of "
+                            + "hops that information would propagate in the graph inside nodeInfoPropagator.")
+        parser.add_argument("--propagated_info_len", type = int,
+                            default = modelArgsDefaults.propagated_info_len,
+                            help="Length of node information vector, when being propagated.")
+        parser.add_argument("--output_decoder_stack_depth", type = int,
+                            default = modelArgsDefaults.output_decoder_stack_depth,
+                            help="Stack depth of node decoder.")
+        parser.add_argument("--output_decoder_state_width", type = int,
+                            default = modelArgsDefaults.output_decoder_state_width,
+                            help="Width of GRU cell in output decoder.")
+        parser.add_argument("--attentionSubspaceVecLen", type = int,
+                            default = modelArgsDefaults.attentionSubspaceVecLen,
+                            help="Vec length of subspace of attnReadyVecs and decoder hidden state"
+                            + "that is used to comptue attention factors.")
+
+        # Other meta-parameters for training the neural network.
+        parser.add_argument("--input_dropout_p", type = float,
+                            default = None if basicAppConfig.resume else modelArgsDefaults.input_dropout_p,
+                            help="Input dropout probability.")
+        parser.add_argument("--dropout_p", type = float,
+                            default = None if basicAppConfig.resume else modelArgsDefaults.dropout_p,
+                            help="Dropout probability.")
+        parser.add_argument("--use_attention", type = int,
+                            default = modelArgsDefaults.use_attention,
+                            help="Use attention while selcting most appropriate.")
+        parser.add_argument("--teacher_forcing_ratio", type = int,
+                            default = modelArgsDefaults.teacher_forcing_ratio,
+                            help="Teacher forcing ratio to using during decoder training.")
+        parser.add_argument("--learning_rate", type = float,
+                            default = modelArgsDefaults.learning_rate,
+                            help="Learning rate to use during training.")
+        parser.add_argument('--clip_gradient', type=float,
+                            default=modelArgsDefaults.clip_gradient,
+                            help='gradient clipping')
+        parser.add_argument("--disable_batch_norm", type = str2bool,
+                            default = modelArgsDefaults.disable_batch_norm,
+                            help="Disable batch norm. Needed for running some tests.")
+        parser.add_argument("--enableSpotlight", type = str2bool,
+                            default = modelArgsDefaults.enableSpotlight,
+                            help="Whether to enable spotlight, which is designed to optimize"
+                                + " search.")
+        parser.add_argument("--spotlightThreshold", type = float,
+                            default = modelArgsDefaults.spotlightThreshold,
+                            help="Threshold used to identify encoder positions to be considered"
+                                + "for evaluation.")                        
 
     if mode == AppMode.Evaluate:
         parser.add_argument("--beam_count", type = int,
                         default = None,
                         help="Number of beams to use when decoding. Leave as None for not using beam decoding.")
 
+    if mode == AppMode.Generate:
+        parser.add_argument('--count', help="Total number of data entries to generate",
+                default=generatorArgsDefaults.count)
+        parser = domainGeneratorModule.addArguments(parser, generatorArgsDefaults)
+
     # Parse args to build app config dictionary.
     appConfig = parser.parse_args()
-
-    # Post process app config.
-    postProcessAppConfig(appConfig, mode)
-
-    # Spin out model arguments from app configuration.
-    modelArgs = levelDown(appConfig, "modelArgs", modelArgsDefaults.keys())
 
     # Apply random seed.
     if appConfig.random_seed is not None:
@@ -264,7 +285,18 @@ def loadConfig(mode):
 
     appConfig.mode = int(mode)
 
-    return appConfig, modelArgs
+    if mode == AppMode.Generate:
+        domainGeneratorModule.postProcessArguments(appConfig)
+        generatorArgs = levelDown(appConfig, "generatorArgs", generatorArgsDefaults.keys())
+        return appConfig, generatorArgs
+    else:
+        # Post process app config.
+        postProcessAppConfig(appConfig, mode)
+
+        # Spin out model arguments from app configuration.
+        modelArgs = levelDown(appConfig, "modelArgs", modelArgsDefaults.keys())
+
+        return appConfig, modelArgs
 
 def postProcessAppConfig(appConfig, mode):
     """
@@ -284,8 +316,9 @@ def postProcessAppConfig(appConfig, mode):
         appConfig.test_path = appConfig.input_path + appConfig.test_dataset + "/"
 
     # Training run folders.
-    if not os.path.isabs(appConfig.training_dir):
-        appConfig.training_dir = os.path.join(os.getcwd(), appConfig.training_dir)
+    if mode != AppMode.Generate:
+        if not os.path.isabs(appConfig.training_dir):
+            appConfig.training_dir = os.path.join(os.getcwd(), appConfig.training_dir)
     allRunsFolder = 'runFolders/'
 
     # By default, we are willing to create in training mode. OW, not.
@@ -294,35 +327,36 @@ def postProcessAppConfig(appConfig, mode):
     else:
         appConfig.create = False
 
-    if appConfig.resume is True:
-        # Explicit resume requested. Cannot create.
-        appConfig.create = False
-    elif appConfig.resume is None:
-        appConfig.resume = True
+    if mode != AppMode.Generate:
+        if appConfig.resume is True:
+            # Explicit resume requested. Cannot create.
+            appConfig.create = False
+        elif appConfig.resume is None:
+            appConfig.resume = True
 
-    # Identify runFolder and runIndex
-    (
-        appConfig.runFolder,
-        appConfig.run,
-        appConfig.resume,
-    ) = getRunFolder(
-                appConfig.training_dir,
-                allRunsFolder,
-                runIndex=appConfig.run,
-                resume=appConfig.resume,
-                create=appConfig.create,
-                suffix="{0}_{1}".format(appConfig.domain, curSchemaVersion))
-
-    # Identify last checkpoint
-    (
-        appConfig.checkpointEpoch,
-        appConfig.checkpointStep,
-        appConfig.checkpointFolder
-    ) = getLatestCheckpoint(appConfig.training_dir, appConfig.runFolder)
-
-    # If runFolder exists but checkpoint folder doesn't, we still can't resume.
-    if appConfig.checkpointFolder is None:
-        appConfig.resume = False
+        # Identify runFolder and runIndex
+        (
+            appConfig.runFolder,
+            appConfig.run,
+            appConfig.resume,
+        ) = getRunFolder(
+                    appConfig.training_dir,
+                    allRunsFolder,
+                    runIndex=appConfig.run,
+                    resume=appConfig.resume,
+                    create=appConfig.create,
+                    suffix="{0}_{1}".format(appConfig.domain, curSchemaVersion))
+    
+        # Identify last checkpoint
+        (
+            appConfig.checkpointEpoch,
+            appConfig.checkpointStep,
+            appConfig.checkpointFolder
+        ) = getLatestCheckpoint(appConfig.training_dir, appConfig.runFolder)
+    
+        # If runFolder exists but checkpoint folder doesn't, we still can't resume.
+        if appConfig.checkpointFolder is None:
+            appConfig.resume = False
 
 def getRunFolder(dataFolderPath,
         allRunsFolder,

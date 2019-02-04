@@ -22,7 +22,7 @@ def getText(len_range, vocab=None):
         vocab = textVocab
     return "".join([random.choice(textVocab) for _ in range(textLen)])
 
-def generateVocabs(generatorArgs):
+def randomVocabs(generatorArgs):
     tag_gen_params = generatorArgs.get("tag_gen_params", (50, (0, 5)))
     attr_gen_params = generatorArgs.get("attr_gen_params", (50, (0, 5)))
     attr_value_gen_params = generatorArgs.get("attr_value_gen_params", (50, (0, 20)))
@@ -33,9 +33,9 @@ def generateVocabs(generatorArgs):
 
     return tagSet, attrSet, attrValueSet
 
-def generateXml(generatorArgs, vocabs=None):
+def randomXml(generatorArgs, vocabs=None):
     if vocabs is None:
-        vocabs = generateVocabs(generatorArgs)
+        vocabs = randomVocabs(generatorArgs)
     (tagSet, attrSet, attrValueSet) = vocabs
 
     for k, v in generatorArgs.items():

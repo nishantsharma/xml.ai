@@ -1,12 +1,43 @@
 from __future__ import print_function
-import argparse
-import os, sys
-import shutil
-import random
+import os, sys, shutil, random
+import argparse, io 
 from hier2hier.dataset.xsd2xml import GenXML
 import xml.etree.ElementTree as ET
 
-def transform(xmlTree):
+generatorArgsDefaults = {
+   "xsdfile": "./domains/toy2/schema.xsd",
+   "element": "PurchaseOrder",
+   "enable_choice": False,
+}
+
+def addArguments(parser, defaultArgs):
+    parser.add_argument("-s", "--schema", dest="xsdfile", default=defaultArgs.xsdfile,
+                        help="select the xsd used to generate xml")
+    parser.add_argument("-e", "--element", dest="element", default=defaultArgs.element,
+                        help="select an element to dump xml")
+    parser.add_argument("-c", "--choice",
+                        action="store_true", dest="enable_choice", default=defaultArgs.enable_choice,
+                        help="enable the <choice> mode")
+    return parser
+
+def postProcessArguments(args):
+    return args 
+
+def generateCommon(appConfig, generatorArgs):
+    generator = GenXML(generatorArgs.xsdfile, generatorArgs.element, generatorArgs.enable_choice)
+    return generator 
+
+def generateSample(generatorArgs, generator):
+    # Generate the XML.
+    xmlStream = io.StringIO()
+    generator.run(xmlStream)
+
+    # Parse and return the XML.
+    xmlStream.seek(0)
+    xmlTree = ET.parse(xmlStream)
+    return xmlTree
+
+def transformSample(xmlTree):
     """
     Transforms XML tree by swapping ShipTo and BillTo addresses.
     """
@@ -16,55 +47,4 @@ def transform(xmlTree):
     temp = shipToName.text
     shipToName.text = billToName.text
     billToName.text = temp
-
-def generate_dataset(generator, rootFolder, datasetName, treeCount):
-    """
-    Generates input and output XML files for toy2 dataset.
-    """
-    path = os.path.join(rootFolder, datasetName)
-    if not os.path.exists(path):
-        os.mkdir(path)
-
-    # generate data file
-    for index in range(treeCount):
-        # Write the generated XML.
-        dataInPath = os.path.join(path, 'dataIn_{0}.xml'.format(index))
-        with open(dataInPath, 'w') as fout:
-            generator.run(fout)
-
-        # Transform the XML.
-        xmlTree = ET.parse(dataInPath)
-        transform(xmlTree)
-
-        # Save the transformed XML.
-        dataOutPath = os.path.join(path, 'dataOut_{0}.xml'.format(index))
-        xmlTree.write(dataOutPath)
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--schema", dest="xsdfile", required=True,
-                        help="select the xsd used to generate xml")
-    parser.add_argument("-e", "--element", dest="element", required=True,
-                        help="select an element to dump xml")
-    parser.add_argument("-c", "--choice",
-                        action="store_true", dest="enable_choice", default=False,
-                        help="enable the <choice> mode")
-    parser.add_argument('-d', '--dir',
-                        help="data directory", default="data")
-    parser.add_argument('-m', '--max-len',
-                        help="max sequence length", default=10)
-    args = parser.parse_args()
-
-    data_dir = args.dir
-    if not os.path.exists(data_dir):
-        os.mkdir(data_dir)
-
-    toy_dir = data_dir
-    if not os.path.exists(toy_dir):
-        os.mkdir(toy_dir)
-
-    generator = GenXML(args.xsdfile, args.element, args.enable_choice)
-
-    generate_dataset(generator, toy_dir, 'train', 10000)
-    generate_dataset(generator, toy_dir, 'dev', 1000)
-    generate_dataset(generator, toy_dir, 'test', 1000)
+    return xmlTree

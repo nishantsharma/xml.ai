@@ -12,7 +12,7 @@ import torch
 import torch.nn.utils.rnn as rnn
 
 from hier2hier.util import (invertPermutation, blockProfiler, methodProfiler,
-            cached_property_profiler, lastCallProfile, longTensor, AppMode
+            cached_property_profiler, lastCallProfile, longTensor, AppMode)
 from hier2hier.dataset import Hier2HierIterator
 
 class Hier2hierBatch(object):

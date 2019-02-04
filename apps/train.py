@@ -23,7 +23,6 @@ from hier2hier.optim import Optimizer
 from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
-from hier2hier.util import str2bool
 
 from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder
 

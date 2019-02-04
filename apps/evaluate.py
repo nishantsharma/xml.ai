@@ -91,7 +91,7 @@ for i, batch in enumerate(test_batch_iterator.__iter__(AppMode.Evaluate)):
         accuracy = computeAccuracy(expected_outputs, expected_lengths, predicted_outputs, device=device)
         print("Accuracy for batch {0}:{1}".format(i, accuracy))
 
-    for j in range(appConfig.batch_size):
+    for j in range(len(tree_inputs)):
         print( ("\n"
                 + "Iteration {0}.{1:05}\n"
                 + "\tTree Input:\t\t{2}\n"

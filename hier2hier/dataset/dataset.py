@@ -5,7 +5,7 @@ import torch, torchtext
 from torchtext.vocab import Vocab
 
 import xml.etree.ElementTree as ET
-from .randomXml import generateXml
+from .randomXml import randomXml
 from hier2hier.util import invertPermutation, methodProfiler, lastCallProfile, longTensor, AppMode
 
 class Hier2HierExample(torchtext.data.Example):
@@ -27,7 +27,7 @@ class GeneratedXmlDataset(torchtext.data.Dataset):
             sampleCount, generatorArgs = inputSpec
             examples = []
             for n in range(sampleCount):
-                inXml = generateXml(generatorArgs)
+                inXml = randomXml(generatorArgs)
                 outStr = outputTransform(inXml)
                 examples.append(Hier2HierExample(inXml, outStr))
         elif isinstance(inputSpec, list):

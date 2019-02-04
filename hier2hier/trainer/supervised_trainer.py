@@ -42,9 +42,6 @@ class SupervisedTrainer(object):
 
         # Save params.
         self.debug = appConfig.debug
-        self.print_every = appConfig.print_every
-        self.checkpoint_every = appConfig.checkpoint_every
-        self.n_epochs = appConfig.epochs
 
         # Logging.
         self.logger = logging.getLogger(__name__)
@@ -410,7 +407,7 @@ class SupervisedTrainer(object):
             # Step out of range with epoch.
             self.step = self.epoch * steps_per_epoch
         start_step = self.step
-        total_steps = steps_per_epoch * self.n_epochs
+        total_steps = steps_per_epoch * self.appConfig.epochs
 
         self.tensorBoardHook.stepReset(
             step=self.step,
@@ -425,7 +422,7 @@ class SupervisedTrainer(object):
             )
 
         first_time = True
-        while self.epoch != self.n_epochs:
+        while self.epoch != self.appConfig.epochs:
             self.tensorBoardHook.epochNext()
             # Partition next batch for iteartion within curent epoch.
             batch_generator = batch_iterator.__iter__(self.appConfig.mode)
@@ -463,13 +460,13 @@ class SupervisedTrainer(object):
                 epoch_accuracy_total += accuracy if accuracy is not None else 0
                 epoch_beamAccuracy_total += beamAccuracy if beamAccuracy is not None else 0
 
-                if self.step % self.print_every == 0:
-                    print_loss_avg = print_loss_total / self.print_every
+                if self.step % self.appConfig.print_every == 0:
+                    print_loss_avg = print_loss_total / self.appConfig.print_every
                     log_msg = 'Progress: %d%%, Train %s: %.4f/%d=%.4f' % (
                         self.step / total_steps * 100,
                         self.loss.name,
                         print_loss_total,
-                        self.print_every,
+                        self.appConfig.print_every,
                         print_loss_avg)
                     log.info(log_msg)
                     print(log_msg)
@@ -478,7 +475,7 @@ class SupervisedTrainer(object):
 
                 # Checkpoint
                 if ((
-                        self.step % self.checkpoint_every == 0
+                        self.step % self.appConfig.checkpoint_every == 0
                         or self.step == total_steps
                     )
                     and self.appConfig.mode != int(AppMode.Test)
