@@ -35,9 +35,13 @@ This package requires Python 3.6. We recommend creating a new virtual environmen
 # Get Started
 ### Prepare toy dataset
 Run script to generate the reverse toy dataset.
-The generated data is stored in data/toy_reverse by default
-    ./scripts/generate.sh toy1
-    ./scripts/generate.sh toy2
+The generated data is stored in data/inputs/<domainId> etc. by default
+    ./scripts/generate.sh --domain toy1
+    ./scripts/generate.sh --domain toy2
+
+To get help on generation parameters, give the following command.
+    ./scripts/generate.sh --domain toy1 --help
+    ./scripts/generate.sh --domain toy2 --help
 
 ### Train
 To continue last training run. 
@@ -66,8 +70,8 @@ Checkpoints are organized by domainId, runNo, modelSchemaNo and function as show
     data/
       +-- training/
             +-- runFolders/
-                  +-- run.00000.toy1_0/
                   +-- run.<runNo>.<domainId>_<modelSchemaNo>/
+                  +-- run.00000.toy1_0/
                         +-- Chk<epochNo>.<batchNo>/
                               +-- input_vocab*.pt
                               +-- output_vocab.pt
