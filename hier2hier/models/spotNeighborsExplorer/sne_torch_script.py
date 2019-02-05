@@ -14,7 +14,13 @@ from hier2hier.util import blockProfiler, methodProfiler, appendProfilingLabel
 
 class SpotNeighborsExplorerTS(torch.jit.ScriptModule):
     def __init__(self):
-      {{  super().__init__(No}}ne)
+        super().__init__()
+
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
 
     @torch.jit.script_method
     def forward(self, graph, alreadySeenSet, activeNodeSet):

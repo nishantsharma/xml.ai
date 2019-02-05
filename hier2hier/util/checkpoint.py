@@ -35,7 +35,7 @@ class Checkpoint(object):
     INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
     OUTPUT_VOCAB_FILE = 'output_vocab.pt'
 
-    def __init__(self, model, optimizer, loss, epoch, step, batch_size, input_vocabs, output_vocab, modelArgs):
+    def __init__(self, model, optimizer, loss, epoch, step, batch_size, input_vocabs, output_vocab):
         self.model = model
         self.optimizer = optimizer
         self.loss = loss
@@ -44,7 +44,6 @@ class Checkpoint(object):
         self.epoch = epoch
         self.step = step
         self.batch_size = batch_size
-        self.modelArgs = modelArgs
         self._path = None
 
     @property
@@ -75,7 +74,7 @@ class Checkpoint(object):
         torch.save(self.model, os.path.join(path, self.MODEL_NAME))
 
         with open(os.path.join(path, "modelArgs"), 'w') as fout:
-            json.dump(self.modelArgs, fout, indent=2)
+            json.dump(self.model.modelArgs, fout, indent=2)
 
         for input_vocab_key, input_vocab in self.input_vocabs.items():
             with open(os.path.join(path, self.INPUT_VOCABS_FILE.format(input_vocab_key)), 'wb') as fout:
@@ -86,7 +85,7 @@ class Checkpoint(object):
         return path
 
     @classmethod
-    def load(cls, path, modelArgs=None):
+    def load(cls, path):
         """
         Loads a Checkpoint object that was previously saved to disk.
         Args:
@@ -123,11 +122,6 @@ class Checkpoint(object):
             output_vocab = dill.load(fin)
         model.outputVocab = output_vocab
 
-        modelArgsPath = os.path.join(path, "modelArgs")
-        if os.path.exists(modelArgsPath):
-            with open(modelArgsPath, 'r') as fin:
-                modelArgs = AttrDict(json.load(fin))
-
         optimizer = resume_checkpoint['optimizer']
         loss = resume_checkpoint['loss']
         return Checkpoint(model=model, input_vocabs=input_vocabs,
@@ -136,5 +130,5 @@ class Checkpoint(object):
                           loss=loss,
                           epoch=epoch,
                           step=step,
-                          batch_size=resume_checkpoint.get('batch_size', 100),
-                          modelArgs=modelArgs)
+                          batch_size=resume_checkpoint.get('batch_size', 100)
+        )

@@ -22,8 +22,9 @@ from .hierarchyPropagator import HierarchyPropagator
 from .attrInfoPropagator import AttrInfoPropagator
 from .encoderRNN import EncoderRNN
 from .outputDecoder import OutputDecoder
+from .spotNeighborsExplorer import SpotNeighborsExplorer
 
-curSchemaVersion = 0
+defaultSchemaVersion = 0
 
 class Hier2hier(ModuleBase):
     def __init__(self,
@@ -35,7 +36,7 @@ class Hier2hier(ModuleBase):
             eos_id,
             device=None,
             spotlightByFormula=None):
-        super().__init__(device)
+        super().__init__(device, modelArgs.schemaVersion)
         self.debug = debug
         self.propagated_info_len = modelArgs.propagated_info_len
 
@@ -49,6 +50,7 @@ class Hier2hier(ModuleBase):
 
         # First hierarchy propagator.
         self.hierarchyPropagator1 = HierarchyPropagator(
+            self.schemaVersion,
             modelArgs.propagated_info_len,
             modelArgs.node_info_propagator_stack_depth,
             disable_batch_norm=modelArgs.disable_batch_norm,
@@ -71,6 +73,7 @@ class Hier2hier(ModuleBase):
         #   content of each attribute text should be O(1) bits and comparable to
         #   a single symbol in the input text.
         self.attrValueEncoder = EncoderRNN(
+            self.schemaVersion,
             len(inputVocabs.attrValues),
             modelArgs.attrib_value_vec_len,
             input_dropout_p=modelArgs.input_dropout_p,
@@ -84,6 +87,7 @@ class Hier2hier(ModuleBase):
 
         # Module for propagating attributes and generating attention ready vectors, one for each attribute.
         self.attrInfoPropagator = AttrInfoPropagator(
+            self.schemaVersion,
             modelArgs.attrib_value_vec_len,
             modelArgs.propagated_info_len,
             device=device
@@ -91,6 +95,7 @@ class Hier2hier(ModuleBase):
 
         # Info propagator for node.text.
         self.textInfoPropagator = EncoderRNN(
+            self.schemaVersion,
             len(inputVocabs.text),
             modelArgs.propagated_info_len,
             input_dropout_p=modelArgs.input_dropout_p,
@@ -105,6 +110,7 @@ class Hier2hier(ModuleBase):
 
         # Info propagator for node.tail.
         self.tailInfoPropagator = EncoderRNN(
+            self.schemaVersion,
             len(inputVocabs.text),
             modelArgs.propagated_info_len,
             input_dropout_p=modelArgs.input_dropout_p,
@@ -119,6 +125,7 @@ class Hier2hier(ModuleBase):
 
         # Second hierarchy propagator.
         self.hierarchyPropagator2 = HierarchyPropagator(
+            self.schemaVersion,
             modelArgs.propagated_info_len,
             modelArgs.node_info_propagator_stack_depth,
             disable_batch_norm=modelArgs.disable_batch_norm,
@@ -129,6 +136,7 @@ class Hier2hier(ModuleBase):
 
         # Output Decoder.
         self.outputDecoder = OutputDecoder(
+            self.schemaVersion,
             outputVocab,
             modelArgs.propagated_info_len,
             modelArgs.attentionSubspaceVecLen,
@@ -155,6 +163,11 @@ class Hier2hier(ModuleBase):
         # and unpropagated info.
         self.shortCutFactors = nn.Parameter(torch.tensor([0.5 for _ in range(6)], device=self.device))
 
+        # IMPORTANT:
+        # When reconfiguring, changing modelArgs changes values inner tree values also.
+        self.modelArgs = modelArgs
+
+        # Ensure that we are using the right device.
         if device is not None:
             super().cuda(device)
         else:
@@ -171,6 +184,86 @@ class Hier2hier(ModuleBase):
         self.nodeTagsEmbedding.reset_parameters()
         self.outputDecoder.reset_parameters(device)
         self.shortCutFactors = nn.Parameter(torch.tensor([0.5 for _ in range(6)], device=self.device))
+
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
+
+    def reconfigureUponLoad(self, newModelArgs, debug):
+        # Define next schema
+        if newModelArgs.schemaVersion is not None:
+            newModelArgs.schemaVersion = modelArgs.schemaVersion
+        elif hasattr(self, "schemaVersion"):
+            newModelArgs.schemaVersion = self.schemaVersion
+        else:
+            newModelArgs.schemaVersion = defaultSchemaVersion
+
+        # Schema migration.
+        super().upgradeSchema(newModelArgs.schemaVersion)
+
+        # We need to override almost all cmd line specified modelArgs with what we
+        # loaded from checkpoint. Some parameters from the command line are also used.
+        # Edit modelArgs and use.
+        modelArgs = self.modelArgs
+        if newModelArgs.max_output_len is not None:
+            modelArgs.max_output_len = newModelArgs.max_output_len
+        if newModelArgs.max_output_len is not None:
+            modelArgs.max_node_count = newModelArgs.max_node_count
+        if newModelArgs.max_output_len is not None:
+            modelArgs.teacher_forcing_ratio = newModelArgs.teacher_forcing_ratio
+        if newModelArgs.learning_rate is not None:
+            modelArgs.learning_rate = newModelArgs.learning_rate
+        if newModelArgs.clip_gradient is not None:
+            modelArgs.clip_gradient = newModelArgs.clip_gradient
+        if newModelArgs.enableSpotlight is not None:
+            modelArgs.enableSpotlight = newModelArgs.enableSpotlight
+            model.outputDecoder.attentionSpotlight.checkGraph = modelArgs.enableSpotlight
+        if newModelArgs.spotlightThreshold is not None:
+            modelArgs.spotlightThreshold = newModelArgs.spotlightThreshold
+            self.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
+
+        # spotNeighborsExplorer couldn't be serialized. Luckily, it doesn't have any
+        # parameters. So, instantiating it post load.
+        self.outputDecoder.attentionSpotlight.spotNeighborsExplorer=SpotNeighborsExplorer(device=self.device)
+
+        # Some of the config values are spread aross the model. Pushing them across.
+        self.max_output_len = modelArgs.max_output_len
+        self.outputDecoder.max_output_len = modelArgs.max_output_len
+        self.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
+        self.outputDecoder.runtests = debug.runtests
+        self.debug = debug
+
+        # batchNormWeights may not exist in very old versions of the model. 
+        if not hasattr(model.outputDecoder.attentionSpotlight, "batchNormWeights"):
+            spotlightBatchNorm = nn.BatchNorm1d(num_features=1)
+            try:
+                spotlightBatchNorm.cuda(device)
+            except:
+                spotlightBatchNorm.cpu()
+            self.outputDecoder.attentionSpotlight.batchNormWeights = spotlightBatchNorm
+
+        # Fixup outputDecoder.input_dropout. It may have been disabled or may not exist in 
+        # older versions.
+        if (not hasattr(model.outputDecoder, "input_dropout")
+                or (self.modelArgs.input_dropout_p != None
+                    and model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p)):
+            model.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
+
+        # Fixup outputDecoder.gruCell.droupout. It may have been disabled or may not exist in 
+        # older versions.
+        if (self.modelArgs.dropout_p != None
+                and model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p):
+            model.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
+
+        modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
+        modelArgs.dropout_p = self.modelArgs.dropout_p
+
+        # Replace modelArgs with the reconstituted one.
+        self.modelArgs = modelArgs
+
+        return modelArgs
 
     def preprocess_batch(self, batch):
         return Hier2hierBatch(batch, device=self.device)

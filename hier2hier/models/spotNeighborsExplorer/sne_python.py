@@ -16,6 +16,12 @@ class SpotNeighborsExplorerPy(ModuleBase):
     def __init__(self):
         super().__init__(None)
 
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
+
     def forward(self, graph, alreadySeenIn, activeNodesIn):
         """
             Inputs:

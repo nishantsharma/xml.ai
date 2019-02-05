@@ -18,7 +18,6 @@ from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, comp
                             summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode, checkNans
-from hier2hier.models.spotNeighborsExplorer import SpotNeighborsExplorer
 
 class SupervisedTrainer(object):
     """ The SupervisedTrainer class helps in setting up a training framework in a
@@ -118,95 +117,19 @@ class SupervisedTrainer(object):
             tgt.vocab = resume_checkpoint.output_vocab
             tgt.sos_id = tgt.vocab.stoi["<sos>"]
             tgt.eos_id = tgt.vocab.stoi["<eos>"]
+
             model = resume_checkpoint.model
             model.set_device(device)
             if device is not None:
                 model.cuda()
 
+            modelArgs = model.reconfigureUponLoad(self.modelArgs, self.debug)
+
+            # During testing, we disable spotlight by using spotlightByFormula.
+            # It is a test thing.
+            model.outputDecoder.spotlightByFormula=spotlightByFormula
+
             optimizer = resume_checkpoint.optimizer
-
-            # We need to override almost all cmd line specified modelArgs with what we
-            # loaded from checkpoint. Some parameters from the command line are also used.
-            # Edit modelArgs and use.
-            modelArgs = resume_checkpoint.modelArgs
-            if self.modelArgs.max_output_len is not None:
-                modelArgs.max_output_len = self.modelArgs.max_output_len
-            if self.modelArgs.max_output_len is not None:
-                modelArgs.max_node_count = self.modelArgs.max_node_count
-            if self.modelArgs.max_output_len is not None:
-                modelArgs.teacher_forcing_ratio = self.modelArgs.teacher_forcing_ratio
-            if self.modelArgs.learning_rate is not None:
-                modelArgs.learning_rate = self.modelArgs.learning_rate
-            elif not hasattr(modelArgs, "learning_rate"):
-                modelArgs.learning_rate = None
-            if self.modelArgs.clip_gradient is not None:
-                modelArgs.clip_gradient = self.modelArgs.clip_gradient
-            elif not hasattr(modelArgs, "clip_gradient"):
-                modelArgs.clip_gradient = None
-            if self.modelArgs.enableSpotlight is not None:
-                modelArgs.enableSpotlight = self.modelArgs.enableSpotlight
-                model.outputDecoder.attentionSpotlight.checkGraph = modelArgs.enableSpotlight
-            if self.modelArgs.spotlightThreshold is not None:
-                modelArgs.spotlightThreshold = self.modelArgs.spotlightThreshold
-                model.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
-            model.outputDecoder.spotlightByFormula=self.spotlightByFormula
-            model.outputDecoder.attentionSpotlight.spotNeighborsExplorer=SpotNeighborsExplorer(device=device)
-
-            model.max_output_len = modelArgs.max_output_len
-            if hasattr(model, "nodeInfoEncoder"):
-                model.nodeInfoEncoder.max_node_count = modelArgs.max_node_count
-            model.outputDecoder.max_output_len = modelArgs.max_output_len
-            model.outputDecoder.teacher_forcing_ratio = modelArgs.teacher_forcing_ratio
-            model.outputDecoder.runtests = self.debug.runtests
-            model.debug = self.debug
-
-
-            if not hasattr(model.outputDecoder.attentionSpotlight, "batchNormWeights"):
-                spotlightBatchNorm = nn.BatchNorm1d(num_features=1)
-                try:
-                    spotlightBatchNorm.cuda(device)
-                except:
-                    spotlightBatchNorm.cpu()
-                model.outputDecoder.attentionSpotlight.batchNormWeights = spotlightBatchNorm
-
-            # Fixup nodeInfoPropagator.input_dropout.
-            if hasattr(model, "nodeInfoPropagator"):
-                if (not hasattr(model.nodeInfoPropagator, "input_dropout")
-                    or (
-                        self.modelArgs.input_dropout_p != None
-                        and model.nodeInfoPropagator.input_dropout.p != self.modelArgs.input_dropout_p
-                    )
-                ):
-                    model.nodeInfoPropagator.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
-
-                # Fixup nodeInfoPropagator.dropout.
-                if (not hasattr(model.nodeInfoPropagator, "dropout")
-                        or (self.modelArgs.dropout_p != None
-                            and model.nodeInfoPropagator.dropout.p != self.modelArgs.dropout_p)):
-                    model.nodeInfoPropagator.dropout = nn.Dropout(self.modelArgs.dropout_p)
-
-            # Fixup outputDecoder.input_dropout.
-            if (not hasattr(model.outputDecoder, "input_dropout")
-                    or (self.modelArgs.input_dropout_p != None
-                        and model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p)):
-                model.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
-
-            # Fixup outputDecoder.gruCell.droupout.
-            if (self.modelArgs.dropout_p != None
-                    and model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p):
-                model.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
-
-            modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
-            modelArgs.dropout_p = self.modelArgs.dropout_p
-
-            # Model behaves very differently during test time when track_running_stats is true.
-            # Saved model had it false. Fixing here.
-            if hasattr(model, "nodeInfoEncoder"):
-                if hasattr(model.nodeInfoEncoder.nodeTextEncoder, "textTensorBatchNorm"):
-                    model.nodeInfoEncoder.nodeTextEncoder.textTensorBatchNorm.track_running_stats = False
-            if hasattr(model, "nodeInfoPropagator"):
-                if hasattr(model.nodeInfoPropagator, "batchNormPropagatedInfo"):
-                    model.nodeInfoPropagator.batchNormPropagatedInfo.track_running_stats = False
 
             # A work around to set optimizing parameters properly
             resume_optim = optimizer.optimizer

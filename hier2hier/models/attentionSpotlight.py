@@ -54,6 +54,12 @@ class AttentionSpotlight(ModuleBase):
     def reset_parameters(self, device):
         self.batchNormWeights.reset_parameters()
 
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
+
     @methodProfiler
     def forward(self,
                 posNbrhoodGraphByGndtol,

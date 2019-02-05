@@ -54,11 +54,11 @@ class EncoderRNN(ModuleBase):
         >>> output, hidden = encoder(input)
 
     """
-    def __init__(self, rnn_input_size, hidden_size, doEmbed=True,
+    def __init__(self, schemaVersion, rnn_input_size, hidden_size, doEmbed=True,
             input_dropout_p=0, dropout_p=0, n_layers=1, bidirectional=False,
             rnn_cell="gru",
             update_embedding=True, vocab_size=None, initialEmbedding=None, device=None):
-        super().__init__(device)
+        super().__init__(device, schemaVersion)
         
         self.rnn_input_size = rnn_input_size
         self.hidden_size = hidden_size
@@ -96,6 +96,12 @@ class EncoderRNN(ModuleBase):
     def reset_parameters(self, device):
         if self.embedding is not None:
             self.embedding.reset_parameters()
+
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
 
     @property
     def output_vec_len(self):

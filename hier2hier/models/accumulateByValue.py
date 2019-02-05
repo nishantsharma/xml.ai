@@ -16,6 +16,12 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
             self.mode = 1
         super().__init__(None)
 
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
+
     @methodProfiler
     def wrapper(self, *argc, **kargv):
         return self(*argc, **kargv)

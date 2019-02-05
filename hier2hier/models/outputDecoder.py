@@ -97,6 +97,12 @@ class OutputDecoder(ModuleBase):
         nn.init.normal_(self.initGruOutput)
         self.buildInitGruState.reset_parameters()
 
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
+
     @methodProfiler
     def forward(self,
             sampleCount,

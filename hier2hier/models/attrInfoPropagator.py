@@ -20,14 +20,13 @@ from torch import optim
 import torch.nn.functional as F
 
 from .moduleBase import ModuleBase
-from .encoderRNN import EncoderRNN
 from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockProfiler,
                             methodProfiler, lastCallProfile)
 
 
 class AttrInfoPropagator(ModuleBase):
-    def __init__(self, encoded_attr_len, propagated_info_len, device=None):
-        super().__init__(device)
+    def __init__(self, schemaVersion, encoded_attr_len, propagated_info_len, device=None):
+        super().__init__(device, schemaVersion)
 
         self.encoded_attr_len = encoded_attr_len
         self.propagated_info_len = propagated_info_len
@@ -40,6 +39,12 @@ class AttrInfoPropagator(ModuleBase):
     def reset_parameters(self, device):
         self.layOverAttrInfo.reset_parameters()
         self.extractAttrInfo.load_state_dict(self.layOverAttrInfo.state_dict())
+
+    def singleStepSchema(self, schemaVersion):
+        if schemaVersion is 0:
+            pass
+        else:
+            super().singleStepSchema(schemaVersion)
 
     @methodProfiler
     def forward(self,

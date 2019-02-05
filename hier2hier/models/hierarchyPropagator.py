@@ -26,13 +26,14 @@ from hier2hier.models.hier2hierBatch import splitByToi
 
 class HierarchyPropagator(ModuleBase):
     def __init__(self,
+            schemaVersion,
             propagated_info_len,
             node_info_propagator_stack_depth,
             disable_batch_norm,
             input_dropout_p=0,
             dropout_p=0,
             device=None):
-        super().__init__(device)
+        super().__init__(device, schemaVersion)
         self.propagated_info_len = propagated_info_len
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
         self.disable_batch_norm = disable_batch_norm

@@ -12,9 +12,14 @@ inference and checkpoints etc.  This is an alpha release. We appreciate any kind
 1) Hierarchical flow of information suited for XML, instead of linear flow in typical seq2seq models.
 2) Use of attention to find the appropriate character position/XML node/node attribute to focus upon.
 3) Use of GRU RNN for encoding and decoding.
-4) Beam decoding.
+4) Support for Beam decoding for better accuracy.
 5) Custom GPU implementation of performance critical modules.
 6) Tensorboard integration(over pytorch tensors).
+7) Use of [shortcut connections](https://datascience.stackexchange.com/questions/22118/why-do-we-need-for-shortcut-connections-to-build-residual-networks) between layers in the network for a more stable convergence.
+8) Use of memory networks for incorporating static content.
+9) Use of pointer network for better ability to verbatim copy of text data from input XML. 
+10) Schema versioning: We keep tweaking our models. We often need a way to migrate training done on our old model into new schema.
+   This can be called a kind of self-transfer learning. This is supported via schema versioning.
 
 # Installation
 

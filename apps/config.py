@@ -40,6 +40,7 @@ appConfigGlobalDefaults = {
 #       at the domain level, it is picked up from here.
 modelArgsGlobalDefaults = {
     # XML Schema limits.
+    "schemaVersion": None,
     "max_node_count": None,
     "node_type_count": None,
     "total_attrs_count": None,
@@ -187,6 +188,9 @@ def loadConfig(mode):
 
     if mode in [AppMode.Train, AppMode.Evaluate, AppMode.Test]:
         # XML Schema params.
+        parser.add_argument("--schemaVersion", type = int,
+                            default = modelArgsDefaults.schemaVersion,
+                            help="Maximum number of nodes in an XML file.")
         parser.add_argument("--max_node_count", type = int,
                             default = modelArgsDefaults.max_node_count,
                             help="Maximum number of nodes in an XML file.")
