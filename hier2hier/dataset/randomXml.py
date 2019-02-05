@@ -6,10 +6,11 @@ idVocab = string.digits + idStartVocab + "."
 textVocab = re.sub("[\x0c\x0b.<>/]", "", string.printable)
 
 def getId(len_range):
+    ldLen = random.randrange(*len_range)
     return (
         random.choice(idStartVocab)
         + "".join([
-            random.choice(idVocab) for _ in range(*len_range)
+            random.choice(idVocab) for _ in range(ldLen)
         ])
     )
 

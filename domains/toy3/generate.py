@@ -181,7 +181,7 @@ def transformSample(outNode):
         curChild.attrib = nextChild.attrib
         nextChild.attrib = temp
 
-    # Move the child out into chilren list for reversal.
+    # Move the child out into children list for reversal.
     children = []
     for curChild in outNode:
         children.append(curChild)

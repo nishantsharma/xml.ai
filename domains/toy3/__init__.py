@@ -1,9 +1,9 @@
 """
 Toy3 dataset is composed of a simple tree with randomly generated children.
 The output for each tree is the same tree with following changes.
-a) All children reversed.
-b) All attributes rotated.
-c) All tail and text swapped.
+a) Order of all children is reversed.
+b) Attributes of all nodes is rotated.
+c) All tail and text swapped, except root node, where it is not swapped.
 
 <a><b p1="p1"></b> <c p2="p2"></c></a> becomes <a><c p1="p1"></c> <b p2="p2"><b></a>
 """

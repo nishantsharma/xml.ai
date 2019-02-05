@@ -1,5 +1,5 @@
 """
-Entry point for the application which manually compares model results on the test dataset.
+Entry point for the application which compares model results on the test dataset.
 Results are rendered on the command line.
 
 Don't call directly. Use ./scripts/evaluate.sh
@@ -50,18 +50,18 @@ logging.info("Unprocessed Model Arguments: {0}".format(json.dumps(modelArgs, ind
 # Pick the device, preferably GPU where we run our application.
 device = torch.device("cuda") if torch.cuda.is_available() else None
 
-# Trainer object is requred to
+# Trainer object encapsulates the model and helps test/train/evaluate the model.
 trainer = SupervisedTrainer(appConfig, modelArgs, device)
 trainer.load()
 
 # Load test dataset.
 test_dataset = Hier2HierDataset(baseFolder=appConfig.test_path, fields=trainer.fields, selectPercent=appConfig.input_select_percent)
 
-# Get model from the trainer.
+# Get model from the trainer and put it into eval mode.
 h2hModel = trainer.model
 h2hModel.eval()
 
-# Batching test inputs into singletons.
+# Batching test inputs.
 test_batch_iterator = Hier2HierIterator(
     preprocess_batch=h2hModel.preprocess_batch,
     dataset=test_dataset, batch_size=appConfig.batch_size,

@@ -97,20 +97,6 @@ class OutputDecoder(ModuleBase):
         nn.init.normal_(self.initGruOutput)
         self.buildInitGruState.reset_parameters()
 
-    def decodeSymbol(self, curGruOutput):
-        symbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
-        symbolTensor = symbolTensor.view(len(curGruOutput), len(self.output_vocab))
-        symbols = [int(symbol) for symbol in symbolTensor.topk(1)[1].view(len(curGruOutput))]
-        return symbolTensor, symbols
-
-    def decodeAttention(self, nodeInfoPropagatedTensor, curGruOutput):
-        sampleCount = len(curGruOutput)
-        curGruOutput = curGruOutput.view(sampleCount, self.output_decoder_state_width)
-        curGruOutput = curGruOutput.repeat(1, self.max_node_count)
-        curGruOutput = curGruOutput.view(sampleCount, self.max_node_count, self.output_decoder_state_width)
-        attentionInput = torch.cat([nodeInfoPropagatedTensor, curGruOutput], -1)
-        return self.attentionDecoder(self.attentionPreDecoder(attentionInput).view(sampleCount, self.max_node_count))
-
     @methodProfiler
     def forward(self,
             sampleCount,

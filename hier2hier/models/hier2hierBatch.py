@@ -1,7 +1,7 @@
 """
     To efficiently process a batch of XML trees in GPU, we need to permute
     xmlTrees, their nodes, their attributes and text fields in various orders.
-    
+
     Hier2hierBatch implements all those permutations and mappings during batch
     pre-processing.
 """
@@ -55,7 +55,7 @@ class Hier2hierBatch(object):
                            + Text in TtOIP order
                            + Tail in TlOIP order)
         """
-        self.device = device 
+        self.device = device
         self.attribs = {}
         self.torchBatch = torchBatch
 
@@ -228,7 +228,7 @@ class Hier2hierBatch(object):
             ],
             device=self.device,
         )
-        
+
     @cached_property_profiler
     def encodedAttrSymbolsByAvdlp(self):
         attrValuesVocab = self.torchBatch.dataset.fields["src"].vocabs.attrValues
@@ -454,7 +454,7 @@ class Hier2hierBatch(object):
                     decreasingTextLengths.append(len(text))
 
                 retval[isTail] = self.tuple2PackedIndex(decreasingTextLengths)
-        return retval            
+        return retval
 
     @cached_property_profiler
     def encodedTextByTtDLP(self):
@@ -470,7 +470,7 @@ class Hier2hierBatch(object):
         retval = [None, None]
         for i, isTail in enumerate([False, True]):
             retval[i] = [ self.node2Toi[self.ndfo2Node[ndfo]] for ndfo in self.ndtl2Ndfo2[i] ]
-            
+
         return retval
 
     @cached_property_profiler
@@ -593,7 +593,7 @@ class Hier2hierBatch(object):
                 attrAvdlIndexInGraph = self.avdl2Gni[attrAvdlIndex]
                 nbrHoodGraph[ndfo].append(attrAvdlIndexInGraph)
                 nbrHoodGraph[attrAvdlIndexInGraph].append(ndfo)
-        
+
         for isTail in [False, True]:
             # Next create node-to-text and node-to-tail links.
             i = int(isTail)
@@ -692,7 +692,7 @@ class Hier2hierBatch(object):
     @cached_property_profiler
     def goi2Gndtol(self):
         return self.gni2Gndtol[self.goi2Gni]
-        
+
     @cached_property_profiler
     def goi2Gni(self):
         retval = []
@@ -732,7 +732,7 @@ class Hier2hierBatch(object):
         assert(len(set(retval)) == self.graphNodeCount)
 
         return longTensor(retval, device=self.device)
- 
+
     @cached_property_profiler
     def fullSpotlight(self):
         return longTensor(list(range(self.graphNodeCount)), device=self.device)
@@ -765,7 +765,7 @@ class Hier2hierBatch(object):
             return []
         maxObjLength = decreasingObjLengths[0]
 
-        packedIndex2Tuple = [] 
+        packedIndex2Tuple = []
         for indexWithinObj in range(maxObjLength):
             for objIndex in range(objCount):
                 if indexWithinObj >= decreasingObjLengths[objIndex]:
@@ -773,7 +773,7 @@ class Hier2hierBatch(object):
                     break
                 packedIndex2Tuple.append((objIndex, indexWithinObj))
 
-        return packedIndex2Tuple 
+        return packedIndex2Tuple
 
     @staticmethod
     def linear2PackedIndex(decreasingObjLengths):
@@ -966,7 +966,7 @@ def batchDataUnitTest(trainer, test_data):
         rootParentNdfo = test_data_batch.parentSelectorByNdfo[rootNdfo]
         assert(rootNdfo == rootParentNdfo)
     assert(sampleCount + len(node2parent) == len(allNodes))
-    
+
     # Check childSelectorByNdfoList and decreasingFanoutsFactorByNdfo.
     lastLen = 0
     totalChildren = sum([len(childList) for childList in test_data_batch.childSelectorByNdfoList])
