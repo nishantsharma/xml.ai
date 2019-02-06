@@ -7,7 +7,7 @@ appConfig: Configuration related with the specific launch of the application.
 modelArgs: These configuration items determine the nature of the deep learning 
     model generated. They are unlikely to change across application runs.
 """
-import os, argparse, logging, glob, random
+import os, argparse, logging, glob, random, re
 from orderedattrdict import AttrDict
 from importlib import import_module
 
@@ -19,12 +19,7 @@ import xml.etree.ElementTree as ET
 
 import hier2hier
 from hier2hier.trainer import SupervisedTrainer
-from hier2hier.models import Hier2hier, curSchemaVersion
-from hier2hier.loss import Perplexity
-from hier2hier.optim import Optimizer
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset
-from hier2hier.evaluator import Predictor
-from hier2hier.util.checkpoint import Checkpoint
+from hier2hier.models import Hier2hier
 from hier2hier.util import str2bool, str2bool3, levelDown, AppMode
 
 
@@ -107,7 +102,10 @@ def loadConfig(mode):
             parser.add_argument("--run", action='store', dest='run', default = None, type = int,
                                 help="Index of the run that should be operated upon.")
 
-        if mode in [AppMode.Train, AppMode.Evaluate]:
+            parser.add_argument("--schemaVersion", type = int,
+                                default = None,
+                                help="Maximum number of nodes in an XML file.")
+
             parser.add_argument('--resume', default=False if mode==AppMode.Test else None, type=str2bool3,
                                 help='Indicates if training has to be resumed from the latest checkpoint')
 
@@ -188,9 +186,6 @@ def loadConfig(mode):
 
     if mode in [AppMode.Train, AppMode.Evaluate, AppMode.Test]:
         # XML Schema params.
-        parser.add_argument("--schemaVersion", type = int,
-                            default = modelArgsDefaults.schemaVersion,
-                            help="Maximum number of nodes in an XML file.")
         parser.add_argument("--max_node_count", type = int,
                             default = modelArgsDefaults.max_node_count,
                             help="Maximum number of nodes in an XML file.")
@@ -339,6 +334,10 @@ def postProcessAppConfig(appConfig, mode):
             appConfig.resume = True
 
         # Identify runFolder and runIndex
+        if appConfig.schemaVersion is None:
+            suffixRegex = "{0}_\d*".format(appConfig.domain)
+        else:
+            suffixRegex = "{0}_{1}".format(appConfig.domain, appConfig.schemaVersion)
         (
             appConfig.runFolder,
             appConfig.run,
@@ -349,7 +348,7 @@ def postProcessAppConfig(appConfig, mode):
                     runIndex=appConfig.run,
                     resume=appConfig.resume,
                     create=appConfig.create,
-                    suffix="{0}_{1}".format(appConfig.domain, curSchemaVersion))
+                    suffixRegex=suffixRegex)
     
         # Identify last checkpoint
         (
@@ -367,7 +366,7 @@ def getRunFolder(dataFolderPath,
         runIndex=None,
         resume=True,
         create=True,
-        suffix=""):
+        suffixRegex=""):
     """
     Finds all run folders inside the parent folder passed.
     if runIndex is passed, then returns the folder with specified run index.
@@ -380,7 +379,7 @@ def getRunFolder(dataFolderPath,
                            for runFolder in existingRunFolders }
 
     compatibleRunIndices = [runIndex for runIndex, runFolder in runIndexToFolderMap.items()
-                            if runFolder.endswith(".{0}/".format(suffix))]
+                            if re.match(".*\." + suffixRegex + "/$", runFolder) ]
 
     if runIndex is None:
         # Pick a runIndex that we can use.

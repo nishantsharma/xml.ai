@@ -9,7 +9,8 @@ import torchtext
 from torch import optim
 
 import hier2hier
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator
+from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator, buildVocabs
+from hier2hier.dataset import SYM_PAD
 from hier2hier.evaluator import Evaluator
 from hier2hier.loss import NLLLoss, Perplexity
 from hier2hier.optim import Optimizer
@@ -53,7 +54,9 @@ class SupervisedTrainer(object):
 
         # Field objects contain vocabulary information(Vocab objects) which
         # determines how to numericalize textual data.
-        self.fields = SortedAttrDict({"src": SourceField(), "tgt": TargetField(),})
+        src = SourceField()
+        tgt = TargetField()
+        self.fields = SortedAttrDict({"src": src, "tgt": tgt,})
 
         self.model = None
         self.optimizer = None
@@ -63,8 +66,6 @@ class SupervisedTrainer(object):
     def load(self, training_data=None):
         # Shortcuts.
         log = self.logger
-        src = self.fields.src
-        tgt = self.fields.tgt
         device = self.device
         optimizer = self.optimizer
         loss = self.loss
@@ -76,8 +77,10 @@ class SupervisedTrainer(object):
                 raise ValueError("Cannot create a new instance of trainer without training data.")
 
             # Build vocabs.
-            src.build_vocabs(training_data, max_size=50000)
-            tgt.build_vocab(training_data, max_size=50000)
+            srcVocabs, tgtVocabs, tgtToSrcVocabMap = buildVocabs(training_data, max_size=50000)
+            src, tgt = self.fields.src, self.fields.tgt
+            src.setVocabs(srcVocabs)
+            tgt.setVocabs(tgtVocabs, tgtToSrcVocabMap)
 
             # Some of the settings in appConfig and modelArgs need to be deduced from
             # training data. Doing it at creation time.
@@ -93,7 +96,8 @@ class SupervisedTrainer(object):
                 self.modelArgs,
                 self.debug,
                 src.vocabs,
-                tgt.vocab,
+                tgt.vocabs,
+                tgt.srcVocabsMap,
                 tgt.sos_id,
                 tgt.eos_id,
                 device=device,
@@ -113,10 +117,10 @@ class SupervisedTrainer(object):
                 self.appConfig.checkpointFolder,
                 )
             resume_checkpoint = Checkpoint.load(checkpointFolder, modelArgs=self.modelArgs)
-            src.vocabs = resume_checkpoint.input_vocabs
-            tgt.vocab = resume_checkpoint.output_vocab
-            tgt.sos_id = tgt.vocab.stoi["<sos>"]
-            tgt.eos_id = tgt.vocab.stoi["<eos>"]
+            srcVocabs, tgtVocabs, tgtToSrcVocabMap = resume_checkpoint.vocabs
+            src, tgt = self.fields.src, self.fields.tgt
+            src.setVocabs(srcVocabs)
+            tgt.setVocabs(tgtVocabs, tgtToSrcVocabMap)
 
             model = resume_checkpoint.model
             model.set_device(device)
@@ -153,8 +157,8 @@ class SupervisedTrainer(object):
 
         # Prepare loss object.
         if loss is None:
-            weight = torch.ones(len(tgt.vocab), device=device)
-            pad = tgt.vocab.stoi[tgt.pad_token]
+            weight = torch.ones(len(tgt.vocabs.all), device=device)
+            pad = tgt.vocabs.all.stoi[SYM_PAD]
             loss = Perplexity(weight, pad, device=device)
 
         self.model = model
@@ -189,7 +193,7 @@ class SupervisedTrainer(object):
         decodedOutputs = []
         sos_id = self.fields.tgt.sos_id
         eos_id = self.fields.tgt.eos_id
-        outputVocab = self.fields.tgt.vocab
+        outputVocab = self.fields.tgt.vocabs.all
         max_output_len = self.modelArgs.max_output_len
 
         for index, textOutput in enumerate(textOutputs):
@@ -268,7 +272,7 @@ class SupervisedTrainer(object):
                             textSymbolSet.add(ch)
                         maxNodeTextLen = max(maxNodeTextLen, len(node.tail))
                     maxFanout = max(maxFanout, len(node))
-    
+
             # Process output.
             _, outputLengths = getattr(batch, hier2hier.tgt_field_name)
             for outputLength in outputLengths:

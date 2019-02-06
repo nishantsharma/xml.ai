@@ -20,7 +20,9 @@ import torch.nn.functional as F
 
 class OutputDecoder(ModuleBase):
     def __init__(self,
-            output_vocab,
+            schemaVersion,
+            tgtVocabs,
+            srcToTgtVocabsMap,
             propagated_info_len,
             attentionSubspaceVecLen,
             output_decoder_state_width,
@@ -37,7 +39,7 @@ class OutputDecoder(ModuleBase):
             runtests=False,
             spotlightByFormula=None,
     ):
-        super().__init__(device)
+        super().__init__(device, schemaVersion)
         self.propagated_info_len = propagated_info_len
         self.output_decoder_state_width = output_decoder_state_width
         self.output_decoder_stack_depth = output_decoder_stack_depth
@@ -49,10 +51,10 @@ class OutputDecoder(ModuleBase):
 
         self.sos_id = sos_id
         self.eos_id = eos_id
-        self.pad_id = output_vocab.stoi["<pad>"]
+        self.pad_id = tgtVocabs.all.stoi["<pad>"]
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
-        self.gruInputLen = propagated_info_len + len(output_vocab)
+        self.gruInputLen = propagated_info_len + len(tgtVocabs.all)
 
         self.input_dropout = nn.Dropout(p=input_dropout_p)
         self.gruCell = nn.GRU(
@@ -61,10 +63,11 @@ class OutputDecoder(ModuleBase):
             self.output_decoder_stack_depth,
             batch_first=True,
             dropout=dropout_p)
-        self.symbolsTensor = nn.Parameter(torch.eye(len(output_vocab), device=self.device), requires_grad=False)
+        self.symbolsTensor = nn.Parameter(torch.eye(len(tgtVocabs.all), device=self.device), requires_grad=False)
 
         # Module for decoding attention and moving spotlight.
         self.attentionSpotlight = AttentionSpotlight(
+            schemaVersion,
             spotlightThreshold,
             checkGraph=enableSpotlight,
             device=self.device,
@@ -80,16 +83,17 @@ class OutputDecoder(ModuleBase):
         self.gruOutputProjectorForAttention = nn.Parameter(gruOutputProjectorForAttention)
 
         # Network for symbol decoding.
-        self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(output_vocab))
+        self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
         self.symbolDecoder = nn.Softmax(dim=-1)
-        self.output_vocab = output_vocab
+        self.tgtVocabs = tgtVocabs
+        self.srcToTgtVocabsMap = srcToTgtVocabsMap
         self.runtests = runtests
 
         # Parameters required for loop initialization.
         self.initGruOutput = nn.Parameter(torch.zeros(self.output_decoder_state_width, ))
         self.buildInitGruState = nn.Linear(
             self.propagated_info_len,
-            self.output_decoder_stack_depth  * self.output_decoder_state_width)
+            self.output_decoder_stack_depth * self.output_decoder_state_width)
 
     def reset_parameters(self, device):
         self.gruCell.reset_parameters()
@@ -171,7 +175,7 @@ class OutputDecoder(ModuleBase):
             curSymbol = self.sos_id
             curSymbolTensor = torch.tensor(
                 [
-                    onehotencode(len(self.output_vocab), curSymbol)
+                    onehotencode(len(self.tgtVocabs.all), curSymbol)
                     for _ in range(sampleCount)
                 ],
                 device=self.device
@@ -313,7 +317,7 @@ class OutputDecoder(ModuleBase):
                     # Compute next symbol.
                     with blockProfiler("SYMBOL-DECODE"):
                         generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
-                        generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.output_vocab))
+                        generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.tgtVocabs.all))
                         outputSymbolsByTdolList.append(generatedSymbolTensor)
 
                     dataDebugHook(generatedSymbolTensor, "tdol", prefix="{0}@".format(symbolIndex))

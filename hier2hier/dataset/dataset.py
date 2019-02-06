@@ -37,7 +37,7 @@ class GeneratedXmlDataset(torchtext.data.Dataset):
 
 
 class Hier2HierDataset(torchtext.data.Dataset):
-    def __init__(self, baseFolder='train/folder_1/', fields=None, loader=None, transform=None, selectPercent=None):
+    def __init__(self, baseFolder='train/folder_1/', fields=None, srcLoader=None, tgtLoader=None, selectPercent=None):
         # Build input file pairs.
         self.filePairs = []
         inputFiles = list(glob.glob(baseFolder + "dataIn_*.xml"))
@@ -52,20 +52,22 @@ class Hier2HierDataset(torchtext.data.Dataset):
                 continue
             self.filePairs.append((inputFileName, outputFileName))
 
-        if loader is None:
-            loader = ET.parse
+        if srcLoader is None:
+            srcLoader = lambda fname: ET.parse(fname)
         #self.loader = loader
 
-        if transform is None:
-            transform = lambda x:x
+        if tgtLoader is None:
+            tgtLoader = srcLoader
         #self.transform = transform
 
         examples = []
-        for inFile, outFile in self.filePairs:
-            inXml = transform(loader(inFile))
-            with open(outFile, "r") as fp:
-                outStr = fp.read()
-            examples.append(Hier2HierExample(inXml, outStr))
+        for srcFile, tgtFile in self.filePairs:
+            srcXml = srcLoader(srcFile)
+            try:
+                tgtXml = tgtLoader(tgtFile)
+            except:
+                import pdb;pdb.set_trace()
+            examples.append(Hier2HierExample(srcXml, tgtXml))
 
         super().__init__(examples, fields=fields)
 

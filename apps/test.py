@@ -24,7 +24,7 @@ from hier2hier.models import Hier2hier
 from hier2hier.models.hier2hierBatch import batchDataUnitTest
 from hier2hier.loss import Perplexity
 from hier2hier.optim import Optimizer
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator, GeneratedXmlDataset
+from hier2hier.dataset import Hier2HierDataset, Hier2HierIterator, GeneratedXmlDataset
 from hier2hier.evaluator import Predictor
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import str2bool, longTensor

@@ -8,7 +8,7 @@ import os
 import shutil
 import random
 import string
-from xml.etree.ElementTree import Element, SubElement, Comment, tostring
+from xml.etree.ElementTree import ElementTree, Element, SubElement, Comment, tostring
 
 generatorArgsDefaults = {
    "max_len": 10,
@@ -22,14 +22,14 @@ def postProcessArguments(args):
     return args
 
 def generateCommon(appConfig, generatorArgs):
-    return None 
+    return None
 
 srcAlphabet = string.ascii_lowercase + string.ascii_uppercase + string.digits
-def generateSample(rootFolder, datasetName, treeCount):
+def generateSample(generatorArgs, commonData):
     """
     Generates input and output XML files for toy1 dataset.
     """
-    length = random.randint(1, args.max_len)
+    length = random.randint(1, generatorArgs.max_len)
     dataSeq = []
     dataStr = ""
     for _ in range(length):
@@ -37,11 +37,12 @@ def generateSample(rootFolder, datasetName, treeCount):
         dataSeq.append(str(ord(ch)))
         dataStr += ch
 
-    retval = ET.Element('toyrev')
+    retval = Element('toyrev')
     retval.text = dataStr
+    retval = ElementTree(retval)
     return retval
 
 def transformSample(xmlTree):
-    xmlTree.text = xmlTree.text[::-1]
+    xmlTree.getroot().text = xmlTree.getroot().text[::-1]
     return xmlTree
 

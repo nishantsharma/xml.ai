@@ -35,18 +35,19 @@ class AttentionSpotlight(ModuleBase):
         PrevSLI_x_SOHTDOL, SLI_x_SOHTDOL: SLI X SPARSE 1 HOT TDOL.
     """
     def __init__(self,
+                schemaVersion,
                 spotlightThreshold=None,
                 headCount=1,
                 device=None,
                 checkGraph=True,
     ):
-        super().__init__(device)
+        super().__init__(device, schemaVersion)
         self.checkGraph = checkGraph
         self.spotlightThreshold = spotlightThreshold
 
         # Network for attention model between query and attention ready inputs.
-        self.accumulateSumByValue = AccumulateSumByValue()
-        self.accumulateMaxByValue = AccumulateMaxByValue()
+        self.accumulateSumByValue = AccumulateSumByValue(schemaVersion)
+        self.accumulateMaxByValue = AccumulateMaxByValue(schemaVersion)
         self.spotNeighborsExplorer = SpotNeighborsExplorer(device=device)
 
         self.batchNormWeights = nn.BatchNorm1d(num_features=headCount)

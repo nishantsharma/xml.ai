@@ -30,8 +30,9 @@ class Hier2hier(ModuleBase):
     def __init__(self,
             modelArgs,
             debug,
-            inputVocabs,
-            outputVocab,
+            srcVocabs,
+            tgtVocabs,
+            srcToTgtVocabsMap,
             sos_id,
             eos_id,
             device=None,
@@ -44,7 +45,7 @@ class Hier2hier(ModuleBase):
         ############### Build sub-components. ###############
         #####################################################
         self.nodeTagsEmbedding = nn.Embedding(
-            len(inputVocabs.tags),
+            len(srcVocabs.tags),
             modelArgs.propagated_info_len,
         )
 
@@ -62,7 +63,7 @@ class Hier2hier(ModuleBase):
         # Attribute labels are also embedded into vectors.
         # These attribute label vectors act as initial state, when encoding attribute values.
         self.attrLabelEmbedding = nn.Embedding(
-            len(inputVocabs.attrs),
+            len(srcVocabs.attrs),
             modelArgs.attrib_value_vec_len,
         )
 
@@ -74,7 +75,7 @@ class Hier2hier(ModuleBase):
         #   a single symbol in the input text.
         self.attrValueEncoder = EncoderRNN(
             self.schemaVersion,
-            len(inputVocabs.attrValues),
+            len(srcVocabs.attrValues),
             modelArgs.attrib_value_vec_len,
             input_dropout_p=modelArgs.input_dropout_p,
             dropout_p=modelArgs.dropout_p,
@@ -96,7 +97,7 @@ class Hier2hier(ModuleBase):
         # Info propagator for node.text.
         self.textInfoPropagator = EncoderRNN(
             self.schemaVersion,
-            len(inputVocabs.text),
+            len(srcVocabs.text),
             modelArgs.propagated_info_len,
             input_dropout_p=modelArgs.input_dropout_p,
             dropout_p=modelArgs.dropout_p,
@@ -111,7 +112,7 @@ class Hier2hier(ModuleBase):
         # Info propagator for node.tail.
         self.tailInfoPropagator = EncoderRNN(
             self.schemaVersion,
-            len(inputVocabs.text),
+            len(srcVocabs.text),
             modelArgs.propagated_info_len,
             input_dropout_p=modelArgs.input_dropout_p,
             dropout_p=modelArgs.dropout_p,
@@ -137,7 +138,8 @@ class Hier2hier(ModuleBase):
         # Output Decoder.
         self.outputDecoder = OutputDecoder(
             self.schemaVersion,
-            outputVocab,
+            tgtVocabs,
+            srcToTgtVocabsMap,
             modelArgs.propagated_info_len,
             modelArgs.attentionSubspaceVecLen,
             modelArgs.output_decoder_state_width,

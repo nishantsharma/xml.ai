@@ -1,6 +1,6 @@
 from __future__ import print_function
 import os, sys, shutil, random
-import argparse, io 
+import argparse, io
 from hier2hier.dataset.xsd2xml import GenXML
 import xml.etree.ElementTree as ET
 
@@ -21,11 +21,11 @@ def addArguments(parser, defaultArgs):
     return parser
 
 def postProcessArguments(args):
-    return args 
+    return args
 
 def generateCommon(appConfig, generatorArgs):
     generator = GenXML(generatorArgs.xsdfile, generatorArgs.element, generatorArgs.enable_choice)
-    return generator 
+    return generator
 
 def generateSample(generatorArgs, generator):
     # Generate the XML.

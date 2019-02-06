@@ -122,13 +122,16 @@ def generateCommon(appConfig, generatorArgs):
         existingPath=appConfig.inputs_root_dir + appConfig.domain + "/"
         allFiles = glob.glob(existingPath + "/*/*.xml")
         for filePath in allFiles:
-            for xmlNode in ET.parse(filePath).iter(): 
-                nodeTags.add(xmlNode.tag)
-                for attrLabel, attrValue in xmlNode.attrib.items():
-                    nodeAttrLabels.add(attrLabel)
-                    nodeAttrValues.add(attrValue)
+            try:
+                for xmlNode in ET.parse(filePath).iter():
+                    nodeTags.add(xmlNode.tag)
+                    for attrLabel, attrValue in xmlNode.attrib.items():
+                        nodeAttrLabels.add(attrLabel)
+                        nodeAttrValues.add(attrValue)
+            except:
+                import pdb;pdb.set_trace()
 
-        return list(nodeTags), list(nodeAttrLabels), list(nodeAttrValues)  
+        return list(nodeTags), list(nodeAttrLabels), list(nodeAttrValues)
     else:
         vocabArgs = {
             # (tag Count, (min tag length, max tag length))
@@ -153,14 +156,19 @@ def generateSample(generatorArgs, vocabs):
     }
     return randomXml(treeArgs, vocabs)
 
-def transformSample(outNode):
+def transformSample(xmlTree):
     """
     Transform input XML as per the changes of toy3 schema.
-    
+
     a) All children reversed.
     b) All attributes rotated.
     c) All tail and text swapped.
     """
+    if isinstance(xmlTree, ET.ElementTree):
+        outNode = xmlTree.getroot()
+    else:
+        outNode = xmlTree
+
     # Transform all children nodes.
     for childNode in outNode:
         transformSample(childNode)
@@ -191,4 +199,4 @@ def transformSample(outNode):
     for child in  reversed(children):
         outNode.append(child)
 
-    return outNode
+    return xmlTree

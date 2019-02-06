@@ -18,12 +18,7 @@ import xml.etree.ElementTree as ET
 
 import hier2hier
 from hier2hier.trainer import SupervisedTrainer
-from hier2hier.models import Hier2hier
-from hier2hier.loss import Perplexity
-from hier2hier.optim import Optimizer
-from hier2hier.dataset import SourceField, TargetField, Hier2HierDataset, Hier2HierIterator
-from hier2hier.evaluator import Predictor
-from hier2hier.util.checkpoint import Checkpoint
+from hier2hier.dataset import Hier2HierDataset, Hier2HierIterator
 from hier2hier.util import str2bool, computeAccuracy
 
 from apps.config import AppMode, loadConfig, getLatestCheckpoint, getRunFolder

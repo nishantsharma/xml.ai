@@ -48,7 +48,7 @@ def generate_dataset(rootFolder, datasetName, generatorArgs, commonData, treeCou
     for index in range(treeCount):
         inXml = domainModule.generateSample(generatorArgs, commonData)
         outXml = copy.deepcopy(inXml)
-        domainModule.transformSample(outXml.getroot())
+        domainModule.transformSample(outXml)
 
         # Create the generated XML.
         dataInPath = os.path.join(path, 'dataIn_{0}.xml'.format(index))
