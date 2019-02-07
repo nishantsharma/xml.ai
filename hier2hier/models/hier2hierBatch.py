@@ -562,7 +562,67 @@ class Hier2hierBatch(object):
             len(self.node2Ndfo) + len(self.avdl2Ndac) +
             len(self.ndtlp2Ndtl2[0]) + len(self.ndtlp2Ndtl2[1])
         )
+        
+    def targetStrToProbVector(self, str):
+        tgtVocab = self.torchBatch.dataset.fields["src"].vocabs.all
 
+        symsDict = {}
+        for ch in str:
+            if ch in tgtVocab.stoi:
+                symKey = tgtVocab.stoi[ch]
+            else:
+                symKey = "<unk>"
+            symsDict[symKey] = symsDict.get(ch, 0) + 1
+        downScalingFactor = sum(symsDict.values())
+        if downScalingFactor == 0:
+            retval = [1.0/len(tgtVocab) for _ in range(tgtVocab)]
+        else:
+            if "<unk>" in symsDict:
+                distributedUnkWeight = (
+                    float(symsDict["<unk>"])
+                    / (downScalingFactor * (len(tgtVocab)-downScalingFactor))
+                )
+            else:
+                distributedUnkWeight = 0
+            retval = [ distributedUnkWeight for _ in range(len(tgtVocab)) ]
+            if "<unk>" in symsDict:
+                del symsDict["<unk>"]
+            for ch, freq in symsDict.items():
+                retval[ch] = float(freq)/downScalingFactor
+        return retval
+
+    @cached_property_profiler
+    def srcSymbolsByGndtol(self):
+        retval = [None for _ in range(self.graphNodeCount) ]
+        # Create node-to-node links first.
+        for ndfo, node in enumerate(self.ndfo2Node):
+            gni = self.ndfo2Gni[ndfo]
+            gndtol = self.gni2Gndtol[gni]
+            retval[gndtol] = self.targetStrToProbVector(node.tag)
+
+        # Next create node-to-attr links.
+        for ndfo, node in enumerate(self.ndfo2Node):
+            for avdl in self.node2AvdlList[node]:
+                adfo = self.avdl2Adfo[avdl]
+                attrLabel, attrValue = self.attrsByAdfo[adfo]
+                gni = self.avdl2Gni[avdl]
+                gndtol = self.gni2Gndtol[gni]
+                retval[gndtol] = self.targetStrToProbVector(attrLabel + attrValue)
+
+        for isTail in [False, True]:
+            # Next create node-to-text and node-to-tail links.
+            i = int(isTail)
+            ndtxp2Gni = self.ndtlp2Gni if isTail else self.ndttp2Gni
+            
+            for (ndtl, symIndex), ndtxp in self.ndtxTuple2Ndtlp2[i].items():
+                gni = ndtxp2Gni[ndtxp]
+                gndtol = self.gni2Gndtol[gni]
+                node = self.ndtl2Node2[i][ndtl]
+                ch = (node.tail if isTail else node.text)[symIndex]
+                retval[gndtol] = self.targetStrToProbVector(ch)
+
+        return torch.tensor(retval, device=self.device)
+        
     @cached_property_profiler
     def posNbrhoodGraphByGni(self):
         """
@@ -739,14 +799,14 @@ class Hier2hierBatch(object):
 
     @staticmethod
     def tuple2PackedIndex(decreasingObjLengths):
-        # Build tuple2PackedIndex.
-        packedIndex = 0
         objCount = len(decreasingObjLengths)
         if not objCount:
-            return []
-        maxObjLength = decreasingObjLengths[0]
+            return {}
 
+        # Build tuple2PackedIndex.
         tuple2PackedIndex = {}
+        packedIndex = 0
+        maxObjLength = decreasingObjLengths[0]
         for indexWithinObj in range(maxObjLength):
             for objIndex in range(objCount):
                 if indexWithinObj >= decreasingObjLengths[objIndex]:
@@ -759,7 +819,7 @@ class Hier2hierBatch(object):
 
     @staticmethod
     def packedIndex2Tuple(decreasingObjLengths):
-        # Build tuple2PackedIndex.
+        # Build packedIndex2Tuple.
         objCount = len(decreasingObjLengths)
         if not objCount:
             return []
@@ -806,7 +866,7 @@ class Hier2hierBatch(object):
 
     @staticmethod
     def packed2ObjIndices(decreasingObjLengths):
-        # Build linear2PackedIndex.
+        # Build packed2ObjIndices.
         packedIndex = 0
         objCount = len(decreasingObjLengths)
         if not objCount:

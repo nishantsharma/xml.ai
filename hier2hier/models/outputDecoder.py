@@ -7,14 +7,16 @@ from orderedattrdict import AttrDict
 
 import torch
 import torch.nn as nn
-from torch import optim
 import torch.nn.functional as F
+
 from .moduleBase import ModuleBase
 from .attentionSpotlight import AttentionSpotlight
 from .beamSearch import BeamSearch
+from .hier2hierBatch import splitByToi, computeDimSqueezePoints
+from .symbolDecoder import SymbolDecoder
+
 from hier2hier.util import (onehotencode, checkNans, blockProfiler,
                             methodProfiler, lastCallProfile)
-from hier2hier.models.hier2hierBatch import splitByToi, computeDimSqueezePoints
 
 import torch.nn.functional as F
 
@@ -22,7 +24,6 @@ class OutputDecoder(ModuleBase):
     def __init__(self,
             schemaVersion,
             tgtVocabs,
-            srcToTgtVocabsMap,
             propagated_info_len,
             attentionSubspaceVecLen,
             output_decoder_state_width,
@@ -35,11 +36,12 @@ class OutputDecoder(ModuleBase):
             teacher_forcing_ratio=0,
             input_dropout_p=0,
             dropout_p=0,
+            useSrcPtr=True,
             device=None,
             runtests=False,
             spotlightByFormula=None,
     ):
-        super().__init__(device, schemaVersion)
+        super().__init__(schemaVersion, device)
         self.propagated_info_len = propagated_info_len
         self.output_decoder_state_width = output_decoder_state_width
         self.output_decoder_stack_depth = output_decoder_stack_depth
@@ -83,10 +85,18 @@ class OutputDecoder(ModuleBase):
         self.gruOutputProjectorForAttention = nn.Parameter(gruOutputProjectorForAttention)
 
         # Network for symbol decoding.
-        self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
-        self.symbolDecoder = nn.Softmax(dim=-1)
+        if schemaVersion == 0:
+            self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
+            self.symbolDecoder = nn.Softmax(dim=-1)
+        else:
+            self.symbolDecoder = SymbolDecoder(
+                schemaVersion,
+                useSrcPtr,
+                tgtVocabs,
+                output_decoder_state_width,
+                device,
+            )
         self.tgtVocabs = tgtVocabs
-        self.srcToTgtVocabsMap = srcToTgtVocabsMap
         self.runtests = runtests
 
         # Parameters required for loop initialization.
@@ -102,8 +112,18 @@ class OutputDecoder(ModuleBase):
         self.buildInitGruState.reset_parameters()
 
     def singleStepSchema(self, schemaVersion):
-        if schemaVersion is 0:
-            pass
+        if schemaVersion is 1:
+            # Migrate to schema 1.
+            symbolDecoder = SymbolDecoder(
+                schemaVersion,
+                self.tgtVocabs,
+                self.output_decoder_state_width,
+                self.device,
+            )
+            symbolDecoder.shaper = self.symbolDecoder
+            symbolDecoder.softMax = self.symbolPreDecoder
+            self.symbolDecoder = symbolDecoder
+            del self.symbolPreDecoder
         else:
             super().singleStepSchema(schemaVersion)
 
@@ -112,6 +132,7 @@ class OutputDecoder(ModuleBase):
             sampleCount,
             posNbrhoodGraphByGndtol,
             initSpotlight,
+            srcSymbolsByGndtol,
             posEncodedVecsByGndtol,
             targetOutputsByTdol,
             targetOutputLengthsByTdol,
@@ -261,7 +282,7 @@ class OutputDecoder(ModuleBase):
                             (
                                 sli2Gndtol,
                                 attnReadyInfoCollapsedByTdol,
-                                debugAttnFactorsByGndtol, 
+                                attnFactorsByGndtol, 
                             ) = self.attentionSpotlight(
                                 posNbrhoodGraphByGndtol,
                                 attnReadyVecsByGndtol,
@@ -276,7 +297,7 @@ class OutputDecoder(ModuleBase):
                                 dataDebugHook=None,#dataDebugHook
                             )
                             if debugAttention: 
-                               debugAttnFactorsByGoi = debugAttnFactorsByGndtol[goi2Gndtol]
+                               debugAttnFactorsByGoi = attnFactorsByGndtol[goi2Gndtol]
                                debugAttentionFactorsImg.append(debugAttnFactorsByGoi.unsqueeze(0)) 
                         else:
                             sli2Gndtol = self.spotlightByFormula(
@@ -316,7 +337,16 @@ class OutputDecoder(ModuleBase):
 
                     # Compute next symbol.
                     with blockProfiler("SYMBOL-DECODE"):
-                        generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
+                        if self.schemaVersion == 0:
+                            generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
+                        else:
+                            generatedSymbolTensor = self.symbolDecoder(
+                                curGruOutput,
+                                srcSymbolsByGndtol,
+                                gndtol2Tdol,
+                                attnFactorsByGndtol,
+                                sampleIndexLimit,
+                            )
                         generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.tgtVocabs.all))
                         outputSymbolsByTdolList.append(generatedSymbolTensor)
 
@@ -449,7 +479,7 @@ class OutputDecoder(ModuleBase):
             (
                 sli2Gndtol,
                 attnReadyInfoCollapsedByTdol,
-                debugAttnFactorsByGndtol, 
+                attnFactorsByGndtol, 
             ) = self.attentionSpotlight(
                 posNbrhoodGraphByGndtol,
                 attnReadyVecsByGndtol,
@@ -495,6 +525,11 @@ class OutputDecoder(ModuleBase):
 
             # Compute next symbol.
             generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
+
+            # Find input symbol for all graph positions(Pre-Computed).
+            # Use Attention to collapse that vec into TDOL.
+            # Use curGruState to compute weight of direct copy versus derived value.
+            # Combine with symbolDecoder and symbolPreDecoder to obtain the expected symbol. 
             generatedSymbolTensor = generatedSymbolTensor.view(
                 sampleCount, beamCount, vocabLen
             )

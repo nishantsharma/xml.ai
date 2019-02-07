@@ -18,7 +18,7 @@ import torchtext
 import xml.etree.ElementTree as ET
 
 import hier2hier
-from hier2hier.trainer import SupervisedTrainer
+from hier2hier.trainer import SupervisedTrainer, defaultSchemaVersion
 from hier2hier.models import Hier2hier
 from hier2hier.util import str2bool, str2bool3, levelDown, AppMode
 
@@ -64,6 +64,7 @@ modelArgsGlobalDefaults = {
     "disable_batch_norm": None,
     "enableSpotlight": True,
     "spotlightThreshold": 0.001,
+    "useSrcPtr": True,
 }
 
 # Global generatorArgs defaults:
@@ -263,6 +264,9 @@ def loadConfig(mode):
                             default = modelArgsDefaults.spotlightThreshold,
                             help="Threshold used to identify encoder positions to be considered"
                                 + "for evaluation.")                        
+        parser.add_argument("--useSrcPtr", type = str2bool,
+                            default = modelArgsDefaults.useSrcPtr,
+                            help="When set to true, the model is enabled to directly copy symbols from source.")
 
     if mode == AppMode.Evaluate:
         parser.add_argument("--beam_count", type = int,
@@ -322,7 +326,7 @@ def postProcessAppConfig(appConfig, mode):
 
     # By default, we are willing to create in training mode. OW, not.
     if mode in [AppMode.Train, AppMode.Test]:
-        appConfig.create = True
+        appConfig.create = None
     else:
         appConfig.create = False
 
@@ -330,14 +334,15 @@ def postProcessAppConfig(appConfig, mode):
         if appConfig.resume is True:
             # Explicit resume requested. Cannot create.
             appConfig.create = False
-        elif appConfig.resume is None:
-            appConfig.resume = True
+        #elif appConfig.resume is None:
+        #    appConfig.resume = True
 
         # Identify runFolder and runIndex
         if appConfig.schemaVersion is None:
             suffixRegex = "{0}_\d*".format(appConfig.domain)
         else:
             suffixRegex = "{0}_{1}".format(appConfig.domain, appConfig.schemaVersion)
+
         (
             appConfig.runFolder,
             appConfig.run,
@@ -348,8 +353,11 @@ def postProcessAppConfig(appConfig, mode):
                     runIndex=appConfig.run,
                     resume=appConfig.resume,
                     create=appConfig.create,
-                    suffixRegex=suffixRegex)
-    
+                    suffixRegex=suffixRegex,
+                    createSuffix="{0}_{1}".format(appConfig.domain, defaultSchemaVersion)
+        )
+        appConfig.create = not(appConfig.resume)
+
         # Identify last checkpoint
         (
             appConfig.checkpointEpoch,
@@ -366,7 +374,8 @@ def getRunFolder(dataFolderPath,
         runIndex=None,
         resume=True,
         create=True,
-        suffixRegex=""):
+        suffixRegex="",
+        createSuffix=None):
     """
     Finds all run folders inside the parent folder passed.
     if runIndex is passed, then returns the folder with specified run index.
@@ -375,44 +384,48 @@ def getRunFolder(dataFolderPath,
     existingRunFolders = list(glob.glob(dataFolderPath + allRunsFolder + "run." + "[0-9]"*5 + ".*"))
     existingRunFolders = [fullFolderPath for fullFolderPath in existingRunFolders if os.listdir(fullFolderPath)]
     existingRunFolders = [fullFolderPath[len(dataFolderPath):] for fullFolderPath in existingRunFolders]
-    runIndexToFolderMap = { int(os.path.basename(runFolder)[4:9]):runFolder.replace("\\", "/")+"/"
-                           for runFolder in existingRunFolders }
-
-    compatibleRunIndices = [runIndex for runIndex, runFolder in runIndexToFolderMap.items()
+    compatibleRunFolders = [runFolder for runFolder in existingRunFolders
                             if re.match(".*\." + suffixRegex + "/$", runFolder) ]
-
+    compatibleIndexFolderMap = {}
+    for runFolder in compatibleRunFolders:
+        runIndex = int(os.path.basename(runFolder)[4:9])
+        runFolder = runFolder.replace("\\", "/")+"/"
+        curBestFolder = compatibleIndexFolderMap.get(runIndex, None)
+        if curBestFolder is None or curBestFolder < runFolder:
+            compatibleIndexFolderMap[runIndex] = runFolder
+            
     if runIndex is None:
         # Pick a runIndex that we can use.
-        if resume:
+        if resume in [True, None]:
             # Pick the latest compatible resume-able run.
-            if compatibleRunIndices:
-               runIndex = max(compatibleRunIndices)
-        elif runIndexToFolderMap:
+            if compatibleIndexFolderMap:
+               runIndex = max(compatibleIndexFolderMap.keys())
+        elif compatibleIndexFolderMap:
             # Pick the next run index.
-            runIndex = max(runIndexToFolderMap.keys())+1
+            runIndex = max(compatibleIndexFolderMap.keys())+1
         else:
             # First run index
             runIndex = 0
 
     if runIndex is not None:
         # We have a run index to try.
-        if runIndex not in runIndexToFolderMap:
+        if runIndex not in compatibleIndexFolderMap.keys():
             # Run index does not currently exist.
-            if create:
-                runFolder = "{0}run.{1:0>5}.{2}/".format(allRunsFolder, runIndex, suffix)
+            if create in [True, None]:
+                runFolder = "{0}run.{1:0>5}.{2}/".format(allRunsFolder, runIndex, createSuffix)
                 os.makedirs(dataFolderPath + runFolder, exist_ok=True)
                 return runFolder, runIndex, False
             else:
                 raise FileNotFoundError("Run folder with specified index doesn't exist.")
         else:
-            if runIndex in compatibleRunIndices:
-                return runIndexToFolderMap[runIndex], runIndex, True
+            if runIndex in compatibleIndexFolderMap.keys():
+                return compatibleIndexFolderMap[runIndex], runIndex, True
             else:
                 raise ValueError("Specified run index incompatible with specified suffix.")
     else:
-        if create:
-            runIndex = max(runIndexToFolderMap.keys()) + 1 if runIndexToFolderMap else 0
-            runFolder = "{0}run.{1:0>5}.{2}/".format(allRunsFolder, runIndex, suffix)
+        if create in [None, True]:
+            runIndex = max(compatibleIndexFolderMap.keys()) + 1 if compatibleIndexFolderMap else 0
+            runFolder = "{0}run.{1:0>5}.{2}/".format(allRunsFolder, runIndex, createSuffix)
             os.makedirs(dataFolderPath + runFolder, exist_ok=True)
             return runFolder, runIndex, False
         else:

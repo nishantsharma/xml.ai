@@ -33,7 +33,7 @@ class HierarchyPropagator(ModuleBase):
             input_dropout_p=0,
             dropout_p=0,
             device=None):
-        super().__init__(device, schemaVersion)
+        super().__init__(schemaVersion, device)
         self.propagated_info_len = propagated_info_len
         self.node_info_propagator_stack_depth = node_info_propagator_stack_depth
         self.disable_batch_norm = disable_batch_norm

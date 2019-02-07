@@ -19,28 +19,29 @@ class Checkpoint(object):
         epoch (int): current epoch (an epoch is a loop through the full training data)
         step (int): number of examples seen within the current epoch
         input_vocab (Vocabulary): vocabulary for the input language
-        output_vocab (Vocabulary): vocabulary for the output language
+        tgt_vocab (Vocabulary): vocabulary for the output language
 
     Attributes:
         CHECKPOINT_DIR_NAME (str): name of the checkpoint directory
         TRAINER_STATE_NAME (str): name of the file storing trainer states
         MODEL_NAME (str): name of the file storing model
         INPUT_VOCAB_FILE (str): name of the input vocab file
-        OUTPUT_VOCAB_FILE (str): name of the output vocab file
+        OBSOLETE_OUTPUT_VOCAB_FILE (str): name of the output vocab file
     """
 
     CHECKPOINT_DIR_NAME = 'checkpoints/'
     TRAINER_STATE_NAME = 'trainer_states.pt'
     MODEL_NAME = 'model.pt'
-    INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
-    OUTPUT_VOCAB_FILE = 'output_vocab.pt'
+    VOCABS_FILE = 'vocabs.pt'
 
-    def __init__(self, model, optimizer, loss, epoch, step, batch_size, input_vocabs, output_vocab):
+    OBSOLETE_INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
+    OBSOLETE_OUTPUT_VOCAB_FILE = 'tgt_vocab.pt'
+
+    def __init__(self, model, optimizer, loss, epoch, step, batch_size, vocabs):
         self.model = model
         self.optimizer = optimizer
         self.loss = loss
-        self.input_vocabs = input_vocabs
-        self.output_vocab = output_vocab
+        self.vocabs = vocabs
         self.epoch = epoch
         self.step = step
         self.batch_size = batch_size
@@ -76,11 +77,15 @@ class Checkpoint(object):
         with open(os.path.join(path, "modelArgs"), 'w') as fout:
             json.dump(self.model.modelArgs, fout, indent=2)
 
-        for input_vocab_key, input_vocab in self.input_vocabs.items():
-            with open(os.path.join(path, self.INPUT_VOCABS_FILE.format(input_vocab_key)), 'wb') as fout:
-                dill.dump(input_vocab, fout)
-        with open(os.path.join(path, self.OUTPUT_VOCAB_FILE), 'wb') as fout:
-            dill.dump(self.output_vocab, fout)
+        if self.model.schemaVersion == 0:
+            for input_vocab_key, input_vocab in self.vocabs.src.items():
+                with open(os.path.join(path, self.OBSOLETE_INPUT_VOCABS_FILE.format(input_vocab_key)), 'wb') as fout:
+                    dill.dump(input_vocab, fout)
+            with open(os.path.join(path, self.OBSOLETE_OUTPUT_VOCAB_FILE), 'wb') as fout:
+                dill.dump(self.vocabs.tgt.all, fout)
+        else:
+            with open(os.path.join(path, self.VOCABS_FILE), 'wb') as fout:
+                dill.dump(self.vocabs, fout)
 
         return path
 
@@ -101,34 +106,39 @@ class Checkpoint(object):
         resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=map_location)
         model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=map_location)
 
+        schemaVersion = model.schemaVersion if hasattr(model, "schemaVersion") else 0
+
         # Extract epoch and step.
         checkpointFolder = os.path.basename(path[0:-1])
         stepDotEpochStr = checkpointFolder[len("Chk"):]
         epoch, step = [int(item) for item in stepDotEpochStr.split(".")]
 
         # model.flatten_parameters() # make RNN parameters contiguous
-        input_vocab_files = glob.glob(os.path.join(path, cls.INPUT_VOCABS_FILE).replace("{0}", "*"))
-        input_vocabs = AttrDict()
-        for input_vocab_file in input_vocab_files:
-            vocab_name = os.path.basename(input_vocab_file)
-            start = cls.INPUT_VOCABS_FILE.index("{0}")
-            end = start + len(vocab_name) - len(cls.INPUT_VOCABS_FILE) + 3
-            vocab_name  = vocab_name[start:end]
-            with open(input_vocab_file, 'rb') as fin:
-                input_vocabs[vocab_name] = dill.load(fin)
-        model.inputVocabs = input_vocabs
+        if schemaVersion == 0:
+            input_vocab_files = glob.glob(os.path.join(path, cls.OBSOLETE_INPUT_VOCABS_FILE).replace("{0}", "*"))
+            src_vocabs = AttrDict()
+            for input_vocab_file in input_vocab_files:
+                vocab_name = os.path.basename(input_vocab_file)
+                start = cls.OBSOLETE_INPUT_VOCABS_FILE.index("{0}")
+                end = start + len(vocab_name) - len(cls.OBSOLETE_INPUT_VOCABS_FILE) + 3
+                vocab_name  = vocab_name[start:end]
+                with open(input_vocab_file, 'rb') as fin:
+                    src_vocabs[vocab_name] = dill.load(fin)
 
-        with open(os.path.join(path, cls.OUTPUT_VOCAB_FILE), 'rb') as fin:
-            output_vocab = dill.load(fin)
-        model.outputVocab = output_vocab
-
+            with open(os.path.join(path, cls.OBSOLETE_OUTPUT_VOCAB_FILE), 'rb') as fin:
+                tgt_vocab = dill.load(fin)
+            vocabs = AttrDict({ "src": src_vocabs, "tgt":{"all":tgt_vocab} })
+        else:
+            with open(os.path.join(path, cls.VOCABS_FILE), 'rb') as fin:
+                vocabs = dill.load(fin)
+            
         optimizer = resume_checkpoint['optimizer']
         loss = resume_checkpoint['loss']
-        return Checkpoint(model=model, input_vocabs=input_vocabs,
-                          output_vocab=output_vocab,
-                          optimizer=optimizer,
-                          loss=loss,
-                          epoch=epoch,
-                          step=step,
-                          batch_size=resume_checkpoint.get('batch_size', 100)
+        return Checkpoint(model=model,
+                        optimizer=optimizer,
+                        loss=loss,
+                        epoch=epoch,
+                        step=step,
+                        batch_size=resume_checkpoint.get('batch_size', 100),
+                        vocabs=vocabs,
         )

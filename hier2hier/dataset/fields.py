@@ -147,9 +147,8 @@ class TargetField(torchtext.data.RawField):
 
         return values, lengths
 
-    def setVocabs(self, tgtVocabs, tgtToSrcVocabsMap):
+    def setVocabs(self, tgtVocabs):
         self.vocabs = tgtVocabs
-        self.srcVocabsMap = tgtToSrcVocabsMap
         self.sos_id = self.vocabs.all.stoi[SYM_SOS]
         self.eos_id = self.vocabs.all.stoi[SYM_EOS]
         self.pad_id = self.vocabs.all.stoi[SYM_PAD]

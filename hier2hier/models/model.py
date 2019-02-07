@@ -24,20 +24,17 @@ from .encoderRNN import EncoderRNN
 from .outputDecoder import OutputDecoder
 from .spotNeighborsExplorer import SpotNeighborsExplorer
 
-defaultSchemaVersion = 0
-
 class Hier2hier(ModuleBase):
     def __init__(self,
             modelArgs,
             debug,
             srcVocabs,
             tgtVocabs,
-            srcToTgtVocabsMap,
             sos_id,
             eos_id,
             device=None,
             spotlightByFormula=None):
-        super().__init__(device, modelArgs.schemaVersion)
+        super().__init__(modelArgs.schemaVersion, device)
         self.debug = debug
         self.propagated_info_len = modelArgs.propagated_info_len
 
@@ -139,7 +136,6 @@ class Hier2hier(ModuleBase):
         self.outputDecoder = OutputDecoder(
             self.schemaVersion,
             tgtVocabs,
-            srcToTgtVocabsMap,
             modelArgs.propagated_info_len,
             modelArgs.attentionSubspaceVecLen,
             modelArgs.output_decoder_state_width,
@@ -152,6 +148,7 @@ class Hier2hier(ModuleBase):
             teacher_forcing_ratio=modelArgs.teacher_forcing_ratio,
             input_dropout_p=modelArgs.input_dropout_p,
             dropout_p=modelArgs.dropout_p,
+            useSrcPtr=modelArgs.useSrcPtr,
             device=device,
             runtests=self.debug.runtests,
             spotlightByFormula=spotlightByFormula,
@@ -194,17 +191,6 @@ class Hier2hier(ModuleBase):
             super().singleStepSchema(schemaVersion)
 
     def reconfigureUponLoad(self, newModelArgs, debug):
-        # Define next schema
-        if newModelArgs.schemaVersion is not None:
-            newModelArgs.schemaVersion = modelArgs.schemaVersion
-        elif hasattr(self, "schemaVersion"):
-            newModelArgs.schemaVersion = self.schemaVersion
-        else:
-            newModelArgs.schemaVersion = defaultSchemaVersion
-
-        # Schema migration.
-        super().upgradeSchema(newModelArgs.schemaVersion)
-
         # We need to override almost all cmd line specified modelArgs with what we
         # loaded from checkpoint. Some parameters from the command line are also used.
         # Edit modelArgs and use.
@@ -525,6 +511,7 @@ class Hier2hier(ModuleBase):
             hier2hierBatch.sampleCount,
             hier2hierBatch.posNbrhoodGraphByGndtol,
             hier2hierBatch.fullSpotlight,
+            hier2hierBatch.srcSymbolsByGndtol,
             posEncodedVecsByGndtol,
             hier2hierBatch.targetOutputsByTdol,
             hier2hierBatch.targetOutputLengthsByTdol,

@@ -120,6 +120,7 @@ class Hier2HierIterator(torchtext.data.BucketIterator):
                 savedBatchData.fullSpotlight = processedBatch.fullSpotlight
                 savedBatchData.targetOutputsByToi = processedBatch.targetOutputsByToi
                 savedBatchData.targetOutputLengthsByToi = processedBatch.targetOutputLengthsByToi
+                savedBatchData.srcSymbolsByGndtol = processedBatch.srcSymbolsByGndtol
 
                 # Test attrs
                 if mode == AppMode.Test:

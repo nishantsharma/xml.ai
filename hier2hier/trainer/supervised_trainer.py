@@ -2,6 +2,7 @@ from __future__ import division
 import json, os, random, time, logging, copy
 
 from orderedattrdict import AttrDict as SortedAttrDict
+from attrdict import AttrDict
 
 import torch
 import torch.nn as nn
@@ -19,6 +20,8 @@ from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, comp
                             summarizeLabelNodes)
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode, checkNans
+
+defaultSchemaVersion = 0
 
 class SupervisedTrainer(object):
     """ The SupervisedTrainer class helps in setting up a training framework in a
@@ -80,7 +83,7 @@ class SupervisedTrainer(object):
             srcVocabs, tgtVocabs, tgtToSrcVocabMap = buildVocabs(training_data, max_size=50000)
             src, tgt = self.fields.src, self.fields.tgt
             src.setVocabs(srcVocabs)
-            tgt.setVocabs(tgtVocabs, tgtToSrcVocabMap)
+            tgt.setVocabs(tgtVocabs)
 
             # Some of the settings in appConfig and modelArgs need to be deduced from
             # training data. Doing it at creation time.
@@ -97,7 +100,6 @@ class SupervisedTrainer(object):
                 self.debug,
                 src.vocabs,
                 tgt.vocabs,
-                tgt.srcVocabsMap,
                 tgt.sos_id,
                 tgt.eos_id,
                 device=device,
@@ -116,17 +118,28 @@ class SupervisedTrainer(object):
                 self.appConfig.runFolder,
                 self.appConfig.checkpointFolder,
                 )
-            resume_checkpoint = Checkpoint.load(checkpointFolder, modelArgs=self.modelArgs)
-            srcVocabs, tgtVocabs, tgtToSrcVocabMap = resume_checkpoint.vocabs
+            resume_checkpoint = Checkpoint.load(checkpointFolder)
             src, tgt = self.fields.src, self.fields.tgt
-            src.setVocabs(srcVocabs)
-            tgt.setVocabs(tgtVocabs, tgtToSrcVocabMap)
+            src.setVocabs(resume_checkpoint.vocabs.src)
+            tgt.setVocabs(resume_checkpoint.vocabs.tgt)
 
             model = resume_checkpoint.model
             model.set_device(device)
             if device is not None:
                 model.cuda()
 
+            # Define next schema
+            if self.modelArgs.schemaVersion is not None:
+                self.modelArgs.schemaVersion = modelArgs.schemaVersion
+            elif hasattr(model, "schemaVersion"):
+                self.modelArgs.schemaVersion = model.schemaVersion
+            else:
+                newModelArgs.schemaVersion = defaultSchemaVersion
+
+            # Schema migration.
+            model.upgradeSchema(self.schemaVersion)
+
+            # Reconfiguraation upon a new launch.
             modelArgs = model.reconfigureUponLoad(self.modelArgs, self.debug)
 
             # During testing, we disable spotlight by using spotlightByFormula.
@@ -412,15 +425,18 @@ class SupervisedTrainer(object):
                         self.appConfig.runFolder,
                         self.epoch, # Cur epoch
                         self.step)
+
+                    vocabs = AttrDict({
+                        "src" : training_data.fields["src"].vocabs,
+                        "tgt" : training_data.fields["tgt"].vocabs,
+                    })
                     Checkpoint(model=self.model,
                                optimizer=self.optimizer,
                                loss=self.loss,
                                epoch=self.epoch,
                                step=self.step,
                                batch_size=self.batch_size,
-                               input_vocabs=training_data.fields["src"].vocabs,
-                               output_vocab=training_data.fields["tgt"].vocab,
-                               modelArgs=self.modelArgs
+                               vocabs=vocabs,
                             ).save(checkpointFolder)
 
             epoch_loss_avg = epoch_loss_total / min(steps_per_epoch, self.step - start_step)

@@ -41,7 +41,7 @@ class AttentionSpotlight(ModuleBase):
                 device=None,
                 checkGraph=True,
     ):
-        super().__init__(device, schemaVersion)
+        super().__init__(schemaVersion, device)
         self.checkGraph = checkGraph
         self.spotlightThreshold = spotlightThreshold
 
@@ -282,11 +282,11 @@ class AttentionSpotlight(ModuleBase):
             # Add a beam dimension to attnReadyVecsBySli.
             posEncodedVecsBySli = posEncodedVecsBySli.unsqueeze(0)
 
-        if debugAttention:
+        if debugAttention or True:
            normalizedFactorsByGndtol = torch.zeros(posNbrhoodGraphByGndtol[1].shape, device=self.device, requires_grad=False)
            normalizedFactorsByGndtol[curSli2Gndtol] = normalizedAttentionFactorsByCurSli.squeeze(-1)
         else:
-           normalizedFactorsByGndtol = None
+               normalizedFactorsByGndtol = None
 
         # Use factors to obtain linear combination of cur SLI subset attnReadyVecs.
         normalizedAttentionVectorsByCurSli = (
