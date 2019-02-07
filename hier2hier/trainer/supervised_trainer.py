@@ -95,6 +95,8 @@ class SupervisedTrainer(object):
             batch_size = self.appConfig.batch_size
 
             # Prepare model object.
+            if self.modelArgs.schemaVersion is None:
+                self.modelArgs.schemaVersion = defaultSchemaVersion
             model = Hier2hier(
                 self.modelArgs,
                 self.debug,
