@@ -1,4 +1,4 @@
-from collections import OrderedDict 
+from collections import OrderedDict
 import torch.nn as nn
 
 from .moduleBase import ModuleBase
@@ -17,12 +17,9 @@ class SymbolDecoder(ModuleBase):
         self.tgtVocabs = tgtVocabs
 
         if schemaVersion >= 1:
-            self.shaper = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
-
+            self.nonPointingShaper = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
             self.softMax = nn.Softmax(dim=-1)
-
             self.accumulateByValue = AccumulateSumByValue(schemaVersion)
-
             self.symbolSrcWeightsNetwork = nn.Sequential(OrderedDict([
                 ("Linear1", nn.Linear(output_decoder_state_width, int(output_decoder_state_width/2))),
                 ("Selu1", nn.SELU()),
@@ -76,9 +73,9 @@ class SymbolDecoder(ModuleBase):
                                 as self.shape(curGruOutputByTdol)
                     Shape: outputVocabSize X sampleCount
         """
-        nonPointerSymbolsByTdol = self.shaper(curGruOutputByTdol)
+        nonPointerSymbolsByTdol = self.nonPointingShaper(curGruOutputByTdol)
         if self.useSrcPtr:
-            # Combine with symbolDecoder and shaper to obtain the expected symbol. 
+            # Combine with symbolDecoder and shaper to obtain the expected symbol.
             srcEquivalentSymbolsByTdol = self.accumulateByValue(
                 attnFactorsByGndtol.unsqueeze(1) * srcSymbolsByGndtol,
                 gndtol2Tdol,

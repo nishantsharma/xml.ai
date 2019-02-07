@@ -98,7 +98,7 @@ class EncoderRNN(ModuleBase):
             self.embedding.reset_parameters()
 
     def singleStepSchema(self, schemaVersion):
-        if schemaVersion is 0:
+        if schemaVersion in [0, 1]:
             pass
         else:
             super().singleStepSchema(schemaVersion)

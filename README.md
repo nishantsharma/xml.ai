@@ -17,7 +17,7 @@ inference and checkpoints etc.  This is an alpha release. We appreciate any kind
 6) Tensorboard integration(over pytorch tensors).
 7) Use of [shortcut connections](https://datascience.stackexchange.com/questions/22118/why-do-we-need-for-shortcut-connections-to-build-residual-networks) between layers in the network for a more stable convergence.
 8) Use of memory networks for incorporating static content.
-9) Use of pointer network for better ability to verbatim copy of text data from input XML. 
+9) Use of pointer networks for better ability to verbatim copy of text data from input XML. 
 10) Schema versioning: We keep tweaking our models. We often need a way to migrate training done on our old model into new schema.
    This can be called a kind of "self-transfer learning. This is supported via schema versioning.
 

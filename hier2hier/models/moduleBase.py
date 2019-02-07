@@ -3,7 +3,7 @@ Implements base class for all modules implemented within the Hier2hier scope.
 """
 import torch
 import torch.nn as nn
-        
+
 class ModuleBase(nn.Module):
     def __init__(self, schemaVersion, device):
         super().__init__()

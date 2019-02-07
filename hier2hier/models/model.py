@@ -185,7 +185,10 @@ class Hier2hier(ModuleBase):
         self.shortCutFactors = nn.Parameter(torch.tensor([0.5 for _ in range(6)], device=self.device))
 
     def singleStepSchema(self, schemaVersion):
-        if schemaVersion is 0:
+        """
+        Method to step version numbering.
+        """
+        if schemaVersion in [0, 1]:
             pass
         else:
             super().singleStepSchema(schemaVersion)

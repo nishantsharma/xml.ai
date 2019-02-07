@@ -21,7 +21,7 @@ from hier2hier.util import (blockProfiler, methodProfiler, lastCallProfile, comp
 from hier2hier.util.checkpoint import Checkpoint
 from hier2hier.util import TensorBoardHook, nullTensorBoardHook, AppMode, checkNans
 
-defaultSchemaVersion = 0
+defaultSchemaVersion = 1
 
 class SupervisedTrainer(object):
     """ The SupervisedTrainer class helps in setting up a training framework in a
@@ -131,13 +131,19 @@ class SupervisedTrainer(object):
             # Define next schema
             if self.modelArgs.schemaVersion is not None:
                 self.modelArgs.schemaVersion = modelArgs.schemaVersion
-            elif hasattr(model, "schemaVersion"):
-                self.modelArgs.schemaVersion = model.schemaVersion
-            else:
+            elif self.appConfig.mode == AppMode.Train:
                 self.modelArgs.schemaVersion = defaultSchemaVersion
+            else:
+                self.modelArgs.schemaVersion = model.schemaVersion
 
             # Schema migration.
             model.upgradeSchema(self.modelArgs.schemaVersion)
+            self.appConfig.runFolder = "runFolders/run.{0:05}.{1}_{2}".format(
+                self.appConfig.run,
+                self.appConfig.domain,
+                self.modelArgs.schemaVersion,
+            )
+            self.modelArgs.schemaVersion = model.schemaVersion
 
             # Reconfiguraation upon a new launch.
             modelArgs = model.reconfigureUponLoad(self.modelArgs, self.debug)

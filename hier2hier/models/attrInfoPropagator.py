@@ -41,7 +41,7 @@ class AttrInfoPropagator(ModuleBase):
         self.extractAttrInfo.load_state_dict(self.layOverAttrInfo.state_dict())
 
     def singleStepSchema(self, schemaVersion):
-        if schemaVersion is 0:
+        if schemaVersion in [0, 1]:
             pass
         else:
             super().singleStepSchema(schemaVersion)

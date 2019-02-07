@@ -116,12 +116,13 @@ class OutputDecoder(ModuleBase):
             # Migrate to schema 1.
             symbolDecoder = SymbolDecoder(
                 schemaVersion,
+                True,
                 self.tgtVocabs,
                 self.output_decoder_state_width,
                 self.device,
             )
-            symbolDecoder.shaper = self.symbolDecoder
-            symbolDecoder.softMax = self.symbolPreDecoder
+            symbolDecoder.nonPointingShaper = self.symbolPreDecoder
+            symbolDecoder.softMax = self.symbolDecoder
             self.symbolDecoder = symbolDecoder
             del self.symbolPreDecoder
         else:
@@ -347,7 +348,6 @@ class OutputDecoder(ModuleBase):
                                 attnFactorsByGndtol,
                                 sampleIndexLimit,
                             )
-                        generatedSymbolTensor = generatedSymbolTensor.view(sampleIndexLimit, len(self.tgtVocabs.all))
                         outputSymbolsByTdolList.append(generatedSymbolTensor)
 
                     dataDebugHook(generatedSymbolTensor, "tdol", prefix="{0}@".format(symbolIndex))

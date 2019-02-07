@@ -63,6 +63,18 @@ class HierarchyPropagator(ModuleBase):
         self.overlayChildrenInfo.reset_parameters()
         self.transformChildrenInfo.reset_parameters()
 
+    def singleStepSchema(self, schemaVersion):
+        """
+        Method to step version numbering.
+        """
+        if schemaVersion is 0:
+            pass
+        elif schemaVersion is 1:
+            self.transformParentInfo = nn.Linear(self.propagated_info_len, self.propagated_info_len)
+            self.transformChildrenInfo = nn.Linear(self.propagated_info_len, self.propagated_info_len)
+        else:
+            super().singleStepSchema(schemaVersion)
+
     @methodProfiler
     def forward(self,
             propagatedNodeInfoByNdfo,
