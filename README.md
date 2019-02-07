@@ -11,10 +11,6 @@ This is an alpha release. We appreciate any kind of feedback or contribution. In
 2. Bug reports.
 3. Code contributions. If you would join the project, please contact on the forum.
 
-## Some plots 
-![toy1_schema1.png](./media/toy1_schema1.png)
-![Evaluating toy1 schema](./media/toy1_schema1_eval.png)
-
 ## Key Features 
 
 1. Encoder decoder architecture.
@@ -140,6 +136,13 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
 The sample script by default saves checkpoints in the `inputs/<domainId>` folder of the root directory. Look
 at the usages of the sample code for more options, including resuming and loading from checkpoints.
 
+## Some plots 
+
+### Tensorboard integration with toy1
+![toy1_schema1.png](./media/toy1_schema1.png)
+
+### Evaluating toy1 training
+![Evaluating toy1 schema](./media/toy1_schema1_eval.png)
 # Roadmap
 
 The goal of this library is facilitating the development of XML-to-XML transformation techniques and applications.
