@@ -134,17 +134,17 @@ class SupervisedTrainer(object):
             elif hasattr(model, "schemaVersion"):
                 self.modelArgs.schemaVersion = model.schemaVersion
             else:
-                newModelArgs.schemaVersion = defaultSchemaVersion
+                self.modelArgs.schemaVersion = defaultSchemaVersion
 
             # Schema migration.
-            model.upgradeSchema(self.schemaVersion)
+            model.upgradeSchema(self.modelArgs.schemaVersion)
 
             # Reconfiguraation upon a new launch.
             modelArgs = model.reconfigureUponLoad(self.modelArgs, self.debug)
 
             # During testing, we disable spotlight by using spotlightByFormula.
             # It is a test thing.
-            model.outputDecoder.spotlightByFormula=spotlightByFormula
+            model.outputDecoder.spotlightByFormula=self.spotlightByFormula
 
             optimizer = resume_checkpoint.optimizer
 
@@ -336,7 +336,7 @@ class SupervisedTrainer(object):
         batch_iterator = Hier2HierIterator(
             preprocess_batch=self.model.preprocess_batch,
             dataset=training_data, batch_size=self.batch_size,
-            sort=False, shuffle=True, sort_within_batch=False,
+            sort=False, shuffle=False, sort_within_batch=False,
             sort_key=lambda x: len(x.tgt),
             device=self.device,
             repeat=False,

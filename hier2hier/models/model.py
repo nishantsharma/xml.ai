@@ -207,7 +207,7 @@ class Hier2hier(ModuleBase):
             modelArgs.clip_gradient = newModelArgs.clip_gradient
         if newModelArgs.enableSpotlight is not None:
             modelArgs.enableSpotlight = newModelArgs.enableSpotlight
-            model.outputDecoder.attentionSpotlight.checkGraph = modelArgs.enableSpotlight
+            self.outputDecoder.attentionSpotlight.checkGraph = modelArgs.enableSpotlight
         if newModelArgs.spotlightThreshold is not None:
             modelArgs.spotlightThreshold = newModelArgs.spotlightThreshold
             self.outputDecoder.attentionSpotlight.spotlightThreshold = modelArgs.spotlightThreshold
@@ -224,7 +224,7 @@ class Hier2hier(ModuleBase):
         self.debug = debug
 
         # batchNormWeights may not exist in very old versions of the model. 
-        if not hasattr(model.outputDecoder.attentionSpotlight, "batchNormWeights"):
+        if not hasattr(self.outputDecoder.attentionSpotlight, "batchNormWeights"):
             spotlightBatchNorm = nn.BatchNorm1d(num_features=1)
             try:
                 spotlightBatchNorm.cuda(device)
@@ -234,16 +234,16 @@ class Hier2hier(ModuleBase):
 
         # Fixup outputDecoder.input_dropout. It may have been disabled or may not exist in 
         # older versions.
-        if (not hasattr(model.outputDecoder, "input_dropout")
+        if (not hasattr(self.outputDecoder, "input_dropout")
                 or (self.modelArgs.input_dropout_p != None
-                    and model.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p)):
-            model.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
+                    and self.outputDecoder.input_dropout.p != self.modelArgs.input_dropout_p)):
+            self.outputDecoder.input_dropout = nn.Dropout(self.modelArgs.input_dropout_p)
 
         # Fixup outputDecoder.gruCell.droupout. It may have been disabled or may not exist in 
         # older versions.
         if (self.modelArgs.dropout_p != None
-                and model.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p):
-            model.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
+                and self.outputDecoder.gruCell.dropout != self.modelArgs.dropout_p):
+            self.outputDecoder.gruCell.dropout = self.modelArgs.dropout_p
 
         modelArgs.input_dropout_p = self.modelArgs.input_dropout_p
         modelArgs.dropout_p = self.modelArgs.dropout_p

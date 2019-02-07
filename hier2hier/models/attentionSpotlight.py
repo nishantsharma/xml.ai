@@ -46,8 +46,8 @@ class AttentionSpotlight(ModuleBase):
         self.spotlightThreshold = spotlightThreshold
 
         # Network for attention model between query and attention ready inputs.
-        self.accumulateSumByValue = AccumulateSumByValue(schemaVersion)
-        self.accumulateMaxByValue = AccumulateMaxByValue(schemaVersion)
+        self.accumulateSumByValue = AccumulateSumByValue(schemaVersion, device=device)
+        self.accumulateMaxByValue = AccumulateMaxByValue(schemaVersion, device=device)
         self.spotNeighborsExplorer = SpotNeighborsExplorer(device=device)
 
         self.batchNormWeights = nn.BatchNorm1d(num_features=headCount)
@@ -357,7 +357,8 @@ class AttentionSpotlight(ModuleBase):
 
         # Apply batchNormWeights.
         restoreShape = preExpAttnFactors.shape
-        preExpAttnFactors = self.batchNormWeights(preExpAttnFactors.view(-1, 1)).view(restoreShape)
+        if preExpAttnFactors.numel() > 1:
+            preExpAttnFactors = self.batchNormWeights(preExpAttnFactors.view(-1, 1)).view(restoreShape)
 
         expAttnFactors = torch.exp(preExpAttnFactors)
         assert(expAttnFactors.shape[-1] == 1)

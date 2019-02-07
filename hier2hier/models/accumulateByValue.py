@@ -9,7 +9,7 @@ useJit=False
 TorchJitDecorator=torch.jit.script_method if useJit else (lambda x:x)
 class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
     __constants__ = ['mode']
-    def __init__(self, mode, schemaVersion):
+    def __init__(self, mode, schemaVersion, device=None):
         if mode=="max":
             self.mode = 0
         elif mode=="sum":
@@ -17,7 +17,7 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
         if useJit:
             super().__init__(None)
         else:
-            super().__init__(None, schemaVersion)
+            super().__init__(schemaVersion, device)
 
     def singleStepSchema(self, schemaVersion):
         if schemaVersion is 0:
@@ -99,9 +99,9 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
         return torch.cat(retval, 0)
 
 class AccumulateSumByValue(AccumulateByValue):
-    def __init__(self, schemaVersion):
-        super().__init__("sum", schemaVersion)
+    def __init__(self, schemaVersion, device=None):
+        super().__init__("sum", schemaVersion, device)
         
 class AccumulateMaxByValue(AccumulateByValue):
-    def __init__(self, schemaVersion):
-        super().__init__("max", schemaVersion)
+    def __init__(self, schemaVersion, device=None):
+        super().__init__("max", schemaVersion, device)

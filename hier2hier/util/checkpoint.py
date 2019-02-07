@@ -35,7 +35,7 @@ class Checkpoint(object):
     VOCABS_FILE = 'vocabs.pt'
 
     OBSOLETE_INPUT_VOCABS_FILE = 'input_vocab_{0}.pt'
-    OBSOLETE_OUTPUT_VOCAB_FILE = 'tgt_vocab.pt'
+    OBSOLETE_OUTPUT_VOCAB_FILE = 'output_vocab.pt'
 
     def __init__(self, model, optimizer, loss, epoch, step, batch_size, vocabs):
         self.model = model
@@ -127,7 +127,7 @@ class Checkpoint(object):
 
             with open(os.path.join(path, cls.OBSOLETE_OUTPUT_VOCAB_FILE), 'rb') as fin:
                 tgt_vocab = dill.load(fin)
-            vocabs = AttrDict({ "src": src_vocabs, "tgt":{"all":tgt_vocab} })
+            vocabs = AttrDict({ "src": src_vocabs, "tgt":AttrDict({"all":tgt_vocab}) })
         else:
             with open(os.path.join(path, cls.VOCABS_FILE), 'rb') as fin:
                 vocabs = dill.load(fin)

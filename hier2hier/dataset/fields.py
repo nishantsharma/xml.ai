@@ -89,7 +89,7 @@ def buildVocabs(hier_dataset, max_size=None):
         vocabs.all = torchtext.vocab.Vocab(
             curSymbolCounters.all,
             max_size=max_size,
-            specials=[SYM_SOS, SYM_EOS, SYM_PAD, "<", ">", "/"],
+            specials=[SYM_SOS, SYM_EOS, SYM_PAD, "<", ">", "/", " "],
         )
         setattr(resultVocabs, srcOrTgt, vocabs)
 

@@ -26,7 +26,7 @@ from hier2hier.util import (onehotencode, checkNans, invertPermutation, blockPro
 
 class AttrInfoPropagator(ModuleBase):
     def __init__(self, schemaVersion, encoded_attr_len, propagated_info_len, device=None):
-        super().__init__(device, schemaVersion)
+        super().__init__(schemaVersion, device)
 
         self.encoded_attr_len = encoded_attr_len
         self.propagated_info_len = propagated_info_len

@@ -60,8 +60,7 @@ h2hModel.eval()
 test_batch_iterator = Hier2HierIterator(
     preprocess_batch=h2hModel.preprocess_batch,
     dataset=test_dataset, batch_size=appConfig.batch_size,
-    sort=False, shuffle=True, sort_within_batch=True,
-    sort_key=lambda x: len(x.tgt),
+    sort=False, shuffle=True, sort_within_batch=False,
     device=device, repeat=False)
 
 # In a loop, run the trained model over test dataset.

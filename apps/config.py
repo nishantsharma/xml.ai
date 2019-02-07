@@ -356,7 +356,8 @@ def postProcessAppConfig(appConfig, mode):
                     suffixRegex=suffixRegex,
                     createSuffix="{0}_{1}".format(appConfig.domain, defaultSchemaVersion)
         )
-        appConfig.create = not(appConfig.resume)
+        if mode != AppMode.Evaluate:
+            appConfig.create = not(appConfig.resume)
 
         # Identify last checkpoint
         (
@@ -384,8 +385,12 @@ def getRunFolder(dataFolderPath,
     existingRunFolders = list(glob.glob(dataFolderPath + allRunsFolder + "run." + "[0-9]"*5 + ".*"))
     existingRunFolders = [fullFolderPath for fullFolderPath in existingRunFolders if os.listdir(fullFolderPath)]
     existingRunFolders = [fullFolderPath[len(dataFolderPath):] for fullFolderPath in existingRunFolders]
+    if runIndex is None:
+        folderRegex = "runFolders/run\.\d*\." + suffixRegex + "$"
+    else:
+        folderRegex = "runFolders/run\.0*{0}\.".format(runIndex) + suffixRegex + "$"
     compatibleRunFolders = [runFolder for runFolder in existingRunFolders
-                            if re.match(".*\." + suffixRegex + "/$", runFolder) ]
+                            if re.match(folderRegex, runFolder) ]
     compatibleIndexFolderMap = {}
     for runFolder in compatibleRunFolders:
         runIndex = int(os.path.basename(runFolder)[4:9])
@@ -436,7 +441,7 @@ def getLatestCheckpoint(dataFolderPath, runFolder):
     Identifies the latest model weights checkpoint that we can use to resume an interrupted
     indexing operation.
     """
-    existingCheckpoints = list(glob.glob(dataFolderPath + runFolder + "Chk*/output_vocab.pt"))
+    existingCheckpoints = list(glob.glob(dataFolderPath + runFolder + "Chk*/model.pt"))
     if existingCheckpoints:
         latestCheckpoint = max(existingCheckpoints)
         checkpointFolder = os.path.basename(os.path.dirname(latestCheckpoint))

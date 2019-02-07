@@ -19,7 +19,7 @@ inference and checkpoints etc.  This is an alpha release. We appreciate any kind
 8) Use of memory networks for incorporating static content.
 9) Use of pointer network for better ability to verbatim copy of text data from input XML. 
 10) Schema versioning: We keep tweaking our models. We often need a way to migrate training done on our old model into new schema.
-   This can be called a kind of self-transfer learning. This is supported via schema versioning.
+   This can be called a kind of "self-transfer learning. This is supported via schema versioning.
 
 # Installation
 

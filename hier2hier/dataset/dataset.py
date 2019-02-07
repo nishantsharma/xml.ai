@@ -53,17 +53,15 @@ class Hier2HierDataset(torchtext.data.Dataset):
             self.filePairs.append((inputFileName, outputFileName))
 
         if srcLoader is None:
-            srcLoader = lambda fname: ET.parse(fname)
-        #self.loader = loader
+            srcLoader = ET.parse
 
         if tgtLoader is None:
             tgtLoader = srcLoader
-        #self.transform = transform
 
         examples = []
         for srcFile, tgtFile in self.filePairs:
-            srcXml = srcLoader(srcFile)
             try:
+                srcXml = srcLoader(srcFile)
                 tgtXml = tgtLoader(tgtFile)
             except:
                 import pdb;pdb.set_trace()

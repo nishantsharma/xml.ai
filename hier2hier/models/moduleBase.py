@@ -1,11 +1,13 @@
 """
 Implements base class for all modules implemented within the Hier2hier scope.
 """
+import torch
 import torch.nn as nn
         
 class ModuleBase(nn.Module):
     def __init__(self, schemaVersion, device):
         super().__init__()
+        assert(schemaVersion is not None)
         self.set_device(device)
         self.schemaVersion = schemaVersion
 
@@ -22,12 +24,12 @@ class ModuleBase(nn.Module):
 
     def upgradeSchema(self, newSchemaVersion):
         # Migrate schema of all children.
-        for childModule in self.children:
+        for childModule in self.children():
             if isinstance(childModule, ModuleBase) or isinstance(childModule, torch.jit.ScriptModule):
                 newModelArgs = childModule.upgradeSchema(newSchemaVersion)
 
         # Migrating self.
-        curSchemaVersion = -1 if not hasattr(self, schemaVersion) else self.schemaVersion
+        curSchemaVersion = -1 if not hasattr(self, "schemaVersion") else self.schemaVersion
         assert(curSchemaVersion <= newSchemaVersion)
         while curSchemaVersion != newSchemaVersion:
             nextSchemaVersion = curSchemaVersion+1

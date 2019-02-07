@@ -1,9 +1,9 @@
 """
-Toy1 dataset is composed of a root node with single child XML node. No attributes and no text
-property.The output for each tree is the same tree with the tags of parent and child swapped.
+Toy0 dataset is composed of simple single node XML trees with a randomly generated text
+property. The output for each tree is the same tree with the text property reversed.
 For example
 
-<kjasd><lijade /></kjasd> becomes <lijade><kjasd /></lijade>
+<toyrev>kldasd</toyrev> becomes <toyrev>dsadlk</toyrev>
 """
 
 appConfigDefaults = {
