@@ -127,7 +127,9 @@ class OutputDecoder(ModuleBase):
                     component.reset_parameters()
 
     def singleStepSchema(self, schemaVersion):
-        if schemaVersion is 1:
+        if schemaVersion is 0:
+            self.tgtVocabs = AttrDict({"all": self.output_vocab})
+        elif schemaVersion is 1:
             # Migrate to schema 1.
             symbolDecoder = SymbolDecoder(
                 schemaVersion,
@@ -153,8 +155,8 @@ class OutputDecoder(ModuleBase):
                 ("Selu3", nn.SELU()),
             ]))
             for linearSubModule in [self.buildInitGruState.Linear2, self.buildInitGruState.Linear3]:
-                linearSubModule.weights = nn.eye(stateLength, device=self.device)
-                linearSubModule.bias = nn.zeros(stateLength, device=self.device)
+                linearSubModule.weight = nn.Parameter(torch.eye(stateLength, device=self.device))
+                linearSubModule.bias = nn.Parameter(torch.zeros(stateLength, device=self.device))
         else:
             super().singleStepSchema(schemaVersion)
 

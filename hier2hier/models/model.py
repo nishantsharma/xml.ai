@@ -197,6 +197,9 @@ class Hier2hier(ModuleBase):
         # We need to override almost all cmd line specified modelArgs with what we
         # loaded from checkpoint. Some parameters from the command line are also used.
         # Edit modelArgs and use.
+        if not hasattr(self, "modelArgs"):
+            print("\n Old schema. Reconfig not supported.")
+            return
         modelArgs = self.modelArgs
         if newModelArgs.max_output_len is not None:
             modelArgs.max_output_len = newModelArgs.max_output_len

@@ -564,7 +564,7 @@ class Hier2hierBatch(object):
         )
         
     def targetStrToProbVector(self, str):
-        tgtVocab = self.torchBatch.dataset.fields["src"].vocabs.all
+        tgtVocab = self.torchBatch.dataset.fields["tgt"].vocabs.all
 
         symsDict = {}
         for ch in str:

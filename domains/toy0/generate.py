@@ -1,5 +1,5 @@
 """
-Module to generate toy1 dataset.
+Module to generate toy0 dataset.
 """
 
 from __future__ import print_function

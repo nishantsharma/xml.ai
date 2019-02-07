@@ -106,6 +106,9 @@ class Checkpoint(object):
         resume_checkpoint = torch.load(os.path.join(path, cls.TRAINER_STATE_NAME), map_location=map_location)
         model = torch.load(os.path.join(path, cls.MODEL_NAME), map_location=map_location)
 
+        with open(os.path.join(path, "modelArgs"), 'r') as fin:
+            model.modelArgs = AttrDict(json.load(fin))
+
         schemaVersion = model.schemaVersion if hasattr(model, "schemaVersion") else 0
 
         # Extract epoch and step.

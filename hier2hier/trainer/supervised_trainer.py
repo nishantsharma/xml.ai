@@ -133,11 +133,13 @@ class SupervisedTrainer(object):
                 self.modelArgs.schemaVersion = modelArgs.schemaVersion
             elif self.appConfig.mode == AppMode.Train:
                 self.modelArgs.schemaVersion = defaultSchemaVersion
-            else:
+            elif hasattr(model, "schemaVersion"):
                 self.modelArgs.schemaVersion = model.schemaVersion
+            else:
+                self.modelArgs.schemaVersion = 0
 
             # Schema migration.
-            if self.appConfig.mode == AppMode.Train:
+            if self.appConfig.mode == AppMode.Train or not hasattr(model, "schemaVersion"):
                 self.modelArgs.schemaVersion = min(self.modelArgs.schemaVersion, maxSchemaVersion)
                 model.upgradeSchema(self.modelArgs.schemaVersion)
                 self.appConfig.runFolder = "runFolders/run.{0:05}.{1}_{2}/".format(
@@ -145,7 +147,11 @@ class SupervisedTrainer(object):
                     self.appConfig.domain,
                     self.modelArgs.schemaVersion,
                 )
-            self.modelArgs.schemaVersion = model.schemaVersion
+            else:
+                if hasattr(model, "schemaVersion"):
+                    self.modelArgs.schemaVersion = model.schemaVersion
+                else:
+                    self.modelArgs.schemaVersion = 0
 
             # Make sure that model is on correct device.
             model.set_device(device)
