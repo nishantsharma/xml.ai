@@ -68,28 +68,35 @@ By default, the generated data is stored in data/inputs/<domainId>.
     ./scripts/generate.sh --domain toy2
 
 To get help on generation parameters, give the following command.
+
     ./scripts/generate.sh --domain toy1 --help
     ./scripts/generate.sh --domain toy2 --help
 
 ### Training 
 To continue last training run on the default domain. 
+
     ./scripts/train.sh
 
 To continue last training run for a specific domain. 
+
     ./scripts/train.sh --domain toy1
     ./scripts/train.sh --domain toy2
 
 For help.
+
     ./scripts/train.sh -h
 
 ### Evaluate a model 
 To evalaute latest trained model of a domain. 
+
     ./scripts/evaluate.sh --domain <domainId>
 
 To evaluate on domain toy1.
+
     ./scripts/evaluate.sh --domain toy1
 
 For help.
+
     ./scripts/evaluate.sh -h
 
 ### Tensorboard
