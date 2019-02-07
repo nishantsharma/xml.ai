@@ -1,4 +1,4 @@
-# Deep Learning Framework for XML 
+# Deep Learning Framework XML 
 
 This is a deep learning framework for operating on XML structured data. It is implemented in [PyTorch](http://pytorch.org). The framework has modularized and extensible
 components for training, debugging, inference, checkpoints, model schema migrations etc. XML is the first class format for a large number of applications(All HTML web, office documents, SVG, etc).
