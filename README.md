@@ -55,14 +55,14 @@ Currently, we are running on generated datasets. There are 3 toy datasets that w
 
 | S.No | Dataset ID | Description       | Input Example | Output Example| 
 |------|------------|-------------------|---------------|---------------|
-| 1.   | toy0       | Inverts node.text |  <toyrev>ldhmo</toyrev> |<toyrev>omhdl</toyrev> |
-| 2.   | toy1       | Swaps parent and child node tags | <tag1><tag2 /></tag1> |<tag2><tag1 /></tag2> |
-| 3.   | toy2       | Swapping shiping and billing address fields. | Data is compliant with schema.xsd. | Two addresses swapped. |
+| 1.   | toy0       | Inverts node.text |  &lt;toyrev&gt;ldhmo&lt;/toyrev&gt; |&lt;toyrev&gt;omhdl&lt;/toyrev&gt; |
+| 2.   | toy1       | Swaps parent and child node tags | &lt;tag1&gt;&lt;tag2 /&gt;&lt;/tag1&gt; |&lt;tag2&gt;&lt;tag1 /&gt;&lt;/tag2&gt; |
+| 3.   | toy2       | Swapping shipping and billing address fields. | Generated data compliant with schema.xsd. | The two addresses swapped. |
 | 4.   | toy3       | Children order is reversed. <BR>Attribute list is rotated. <BR>Tail and text swapped. | &lt;a&gt;&lt;b p1="p1"&gt;&lt;/b&gt; &lt;c p2="p2"&gt;&lt;/c&gt;&lt;/a&gt; | &lt;a&gt;&lt;c p1="p1"&gt;&lt;/c&gt; &lt;b p2="p2"&gt;&lt;/b&gt;&lt;/a&gt; | 
 
 ### Preparing toy datasets
 Run script to generate the reverse toy dataset.
-By default, the generated data is stored in data/inputs/<domainId>.
+By default, the generated data is stored in data/inputs/&lt;domainId&gt;.
 
     ./scripts/generate.sh --domain toy1
     ./scripts/generate.sh --domain toy2
@@ -89,7 +89,7 @@ For help.
 ### Evaluate a model 
 To evalaute latest trained model of a domain. 
 
-    ./scripts/evaluate.sh --domain <domainId>
+    ./scripts/evaluate.sh --domain &lt;domainId&gt;
 
 To evaluate on domain toy1.
 
@@ -114,9 +114,9 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
     data/
       +-- training/
             +-- runFolders/
-                  +-- run.<runNo>.<domainId>_<modelSchemaNo>/
+                  +-- run.&lt;runNo&gt;.&lt;domainId&gt;_&lt;modelSchemaNo&gt;/
                   +-- run.00000.toy1_0/
-                        +-- Chk<epochNo>.<batchNo>/
+                        +-- Chk&lt;epochNo&gt;.&lt;batchNo&gt;/
                               +-- input_vocab*.pt
                               +-- output_vocab.pt
                               +-- model.pt
@@ -126,10 +126,10 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
             +-- runFolders/
                   +-- run.00000.toy1_0/
                         +-- Chk*/
-                  +-- run.<runNo>.<domainId>_<modelSchemaNo>/
+                  +-- run.&lt;runNo&gt;.&lt;domainId&gt;_&lt;modelSchemaNo&gt;/
                         +-- Chk*/
       +-- inputs/
-            +-- <domainId>/
+            +-- &lt;domainId&gt;/
                   +-- dev/
                         +-- dataIn*.xml
                         +-- dataOut*.xml
@@ -140,7 +140,7 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
                         +-- dataIn*.xml
                         +-- dataOut*.xml
 
-The sample script by default saves checkpoints in the `inputs/<domainId>` folder of the root directory. Look
+The sample script by default saves checkpoints in the `inputs/&lt;domainId&gt;` folder of the root directory. Look
 at the usages of the sample code for more options, including resuming and loading from checkpoints.
 
 ## Some plots 
