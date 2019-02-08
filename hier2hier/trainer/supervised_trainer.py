@@ -143,7 +143,7 @@ class SupervisedTrainer(object):
             if self.appConfig.mode == AppMode.Train:
                 self.modelArgs.schemaVersion = min(self.modelArgs.schemaVersion, maxSchemaVersion)
                 model.upgradeSchema(self.modelArgs.schemaVersion)
-                self.appConfig.runFolder = "runFolders/run.{0:05}.{1}_{2}".format(
+                self.appConfig.runFolder = "runFolders/run.{0:05}.{1}_{2}/".format(
                     self.appConfig.run,
                     self.appConfig.domain,
                     self.modelArgs.schemaVersion,
