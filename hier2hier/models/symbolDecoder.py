@@ -86,7 +86,15 @@ class SymbolDecoder(ModuleBase):
             )
 
             # Use curGruState to compute weight of direct copy versus derived value.
-            symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
+            if self.training and curGruOutputByTdol.shape[0] == 1:
+                # Batch norm doesn't work on single sized batch.
+                # Temporarily change to eval.
+                self.symbolSrcWeightsNetwork.eval()
+                symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
+                self.symbolSrcWeightsNetwork.train()
+            else:
+                symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
+
             tensorBoardHook.add_histogram("symbolSrcWeights", symbolSrcWeights)
 
             # Compute combined activation.
