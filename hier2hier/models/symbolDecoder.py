@@ -16,24 +16,25 @@ class SymbolDecoder(ModuleBase):
         self.useSrcPtr = useSrcPtr
         self.tgtVocabs = tgtVocabs
 
-        if schemaVersion >= 1:
-            self.nonPointingShaper = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
-            self.softMax = nn.Softmax(dim=-1)
-            self.accumulateByValue = AccumulateSumByValue(schemaVersion)
-            self.symbolSrcWeightsNetwork = nn.Sequential(OrderedDict([
-                ("Linear1", nn.Linear(output_decoder_state_width, int(output_decoder_state_width/2))),
-                ("Selu1", nn.SELU()),
-                ("Linear2", nn.Linear(int(output_decoder_state_width/2), int(output_decoder_state_width/3))),
-                ("Selu2", nn.SELU()),
-                ("Linear3", nn.Linear(int(output_decoder_state_width/3), 1)),
-                ("BN", nn.BatchNorm1d(1)),
-                ("Sigmoid", nn.Sigmoid()),
-            ]))
-        else:
-            raise NotImplementedError("SymbolDecoder in v1.")
+        assert(schemaVersion >= 1)
+        self.nonPointingShaper = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
+        self.softMax = nn.Softmax(dim=-1)
+        self.accumulateByValue = AccumulateSumByValue(schemaVersion)
+        self.symbolSrcWeightsNetwork = nn.Sequential(OrderedDict([
+            ("Linear1", nn.Linear(output_decoder_state_width, int(output_decoder_state_width/2))),
+            ("Selu1", nn.SELU()),
+            ("Linear2", nn.Linear(int(output_decoder_state_width/2), int(output_decoder_state_width/3))),
+            ("Selu2", nn.SELU()),
+            ("Linear3", nn.Linear(int(output_decoder_state_width/3), 1)),
+            ("BN", nn.BatchNorm1d(1)),
+            ("Sigmoid", nn.Sigmoid()),
+        ]))
 
     def reset_parameters(self, device):
-        self.shaper.reset_parameters()
+        self.nonPointingShaper.reset_parameters()
+        for component in self.symbolSrcWeightsNetwork:
+            if list(component.parameters()):
+                component.reset_parameters()
         self.softMax.reset_parameters()
 
     def singleStepSchema(self, schemaVersion):
@@ -56,7 +57,11 @@ class SymbolDecoder(ModuleBase):
             Inputs:
                 curGruOutput
                     Data: Output of the GRU RNN.
-                    Shape: numSamples X output_decoder_state_width
+                    Shape: 
+                        if BeamMode:
+                            numSamples X beamCount X output_decoder_state_width
+                        else
+                            numSamples X output_decoder_state_width
                 srcSymbolsBySli
                     Data: The output symbol that would be generated, if the input symbol at
                         corresponing graph position is just copied.
@@ -73,7 +78,11 @@ class SymbolDecoder(ModuleBase):
                                     using attnFactorsBySli)
                             Hypothesis Two: Output symbol must come primarily from gruOutput.
                                 as self.shape(curGruOutputByTdol)
-                    Shape: outputVocabSize X sampleCount
+                    Shape: 
+                        if beamMode:
+                            outputVocabSize X beamCount X sampleCount
+                        else:
+                            outputVocabSize X sampleCount
         """
         nonPointerSymbolsByTdol = self.nonPointingShaper(curGruOutputByTdol)
         if self.useSrcPtr:
@@ -93,7 +102,14 @@ class SymbolDecoder(ModuleBase):
                 symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
                 self.symbolSrcWeightsNetwork.train()
             else:
+                if beamMode:
+                    origShape = curGruOutputByTdol.shape
+                    curGruOutputByTdol = curGruOutputByTdol.view(origShape[0] * origShape[1], origShape[2])
                 symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
+
+                if beamMode:
+                    curGruOutputByTdol = curGruOutputByTdol.view(origShape)
+                    symbolSrcWeights = symbolSrcWeights.view(origShape[0], origShape[1], -1)
 
             tensorBoardHook.add_histogram("symbolSrcWeights", symbolSrcWeights)
 

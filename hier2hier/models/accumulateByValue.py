@@ -41,11 +41,11 @@ class AccumulateByValue(torch.jit.ScriptModule if useJit else ModuleBase):
             Inputs:
                 valuesToAccumulate:
                     In beamMode:
-                        Shape: beamCount X numVectors
-                        Data: Factors
+                        Shape: beamCount X numVectors X ...
+                        Data: Values to accumulate
                     Else:
-                        Shape: numVectors
-                        Data: Factors
+                        Shape: numVectors X ...
+                        Data: Values to accumulate
                 vecIndicesToKey:
                     Shape: len(valuesToAccumulate)
                     Data: valuesToAccumulate vector index to accumultion key.

@@ -119,7 +119,12 @@ class OutputDecoder(ModuleBase):
         self.gruCell.reset_parameters()
         self.attentionSpotlight.reset_parameters(device)
         nn.init.normal_(self.initGruOutput)
-        self.buildInitGruState.reset_parameters()
+        if self.schemaVersion == 0:
+            self.buildInitGruState.reset_parameters()
+        else:
+            for component in self.buildInitGruState:
+                if list(component.parameters()):
+                    component.reset_parameters()
 
     def singleStepSchema(self, schemaVersion):
         if schemaVersion is 1:
@@ -200,6 +205,7 @@ class OutputDecoder(ModuleBase):
             return self.beamSearch(
                 sampleCount,
                 posNbrhoodGraphByGndtol,
+                srcSymbolsByGndtol,
                 attnReadyVecsByGndtol,
                 initSpotlight,
                 posEncodedVecsByGndtol,
@@ -308,7 +314,7 @@ class OutputDecoder(ModuleBase):
                             (
                                 sli2Gndtol,
                                 attnReadyInfoCollapsedByTdol,
-                                attnFactorsBySli, 
+                                attnFactorsBySli,
                             ) = self.attentionSpotlight(
                                 posNbrhoodGraphByGndtol,
                                 attnReadyVecsByGndtol,
@@ -322,14 +328,14 @@ class OutputDecoder(ModuleBase):
                                 debugAttention=debugAttention,
                                 dataDebugHook=None,#dataDebugHook
                             )
-                            if debugAttention: 
+                            if debugAttention:
                                attnFactorsByGndtol = torch.zeros(
                                        posNbrhoodGraphByGndtol[1].shape,
                                        device=self.device,
                                        requires_grad=False)
                                attnFactorsByGndtol[sli2Gndtol] = attnFactorsBySli.squeeze(-1)
                                debugAttnFactorsByGoi = attnFactorsByGndtol[goi2Gndtol]
-                               debugAttentionFactorsImg.append(debugAttnFactorsByGoi.unsqueeze(0)) 
+                               debugAttentionFactorsImg.append(debugAttnFactorsByGoi.unsqueeze(0))
                         else:
                             sli2Gndtol = self.spotlightByFormula(
                                 hier2hierBatch,
@@ -412,7 +418,7 @@ class OutputDecoder(ModuleBase):
                     else:
                         curSymbolTensor = generatedSymbolTensor
 
-        if debugAttention: 
+        if debugAttention:
            debugAttentionFactorsImg = torch.cat(debugAttentionFactorsImg )
            tensorBoardHook.add_image("debugAttentionFactorsImg", debugAttentionFactorsImg, dataformats="HW")
 
@@ -432,6 +438,7 @@ class OutputDecoder(ModuleBase):
     def beamSearch(self,
                 sampleCount,
                 posNbrhoodGraphByGndtol,
+                srcSymbolsByGndtol,
                 attnReadyVecsByGndtol,
                 initSpotlight,
                 posEncodedVecsByGndtol,
@@ -441,8 +448,8 @@ class OutputDecoder(ModuleBase):
                 beam_count,
     ):
         """
-        This module implements beam search over all attention ready positions(text indices as 
-        well as XML nodes and attributes) in an XML file. 
+        This module implements beam search over all attention ready positions(text indices as
+        well as XML nodes and attributes) in an XML file.
 
         Inputs:
             sampleCount: Number of samples for which search is being undertaken.
@@ -466,7 +473,7 @@ class OutputDecoder(ModuleBase):
                 for decoding instead of attention.
         """
         # Initial spotlight indices.
-        sli2Gndtol = initSpotlight 
+        sli2Gndtol = initSpotlight
 
         bigSampleCount = sampleCount * beam_count
         # Build first GruOutput to kickstart the loop.
@@ -510,7 +517,7 @@ class OutputDecoder(ModuleBase):
             (
                 sli2Gndtol,
                 attnReadyInfoCollapsedByTdol,
-                attnFactorsByGndtol, 
+                attnFactorsBySli,
             ) = self.attentionSpotlight(
                 posNbrhoodGraphByGndtol,
                 attnReadyVecsByGndtol,
@@ -554,28 +561,44 @@ class OutputDecoder(ModuleBase):
             # Undo making num_layers dimension as dim 0.
             curGruState = curGruState.permute(1, 0, 2)
 
-            # Compute next symbol.
-            generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
-
-            # Find input symbol for all graph positions(Pre-Computed).
-            # Use Attention to collapse that vec into TDOL.
-            # Use curGruState to compute weight of direct copy versus derived value.
-            # Combine with symbolDecoder and symbolPreDecoder to obtain the expected symbol. 
-            generatedSymbolTensor = generatedSymbolTensor.view(
-                sampleCount, beamCount, vocabLen
-            )
-
-            # Split the dim0 of length into bigSampleCount two dims.
-            curGruOutput = curGruOutput.view(
-                [sampleCount, beamCount]
-                + list(curGruOutput.shape[2:])
-            )
-
             # Split the dim0 of length into bigSampleCount two dims.
             curGruState = curGruState.view(
                 [sampleCount, beamCount]
                 + list(curGruState.shape[2:])
             )
+
+            # Compute next symbol.
+            if self.schemaVersion == 0:
+                # Find input symbol for all graph positions(Pre-Computed).
+                # Use Attention to collapse that vec into TDOL.
+                # Use curGruState to compute weight of direct copy versus derived value.
+                # Combine with symbolDecoder and symbolPreDecoder to obtain the expected symbol.
+                generatedSymbolTensor = self.symbolDecoder(self.symbolPreDecoder(curGruOutput))
+                generatedSymbolTensor = generatedSymbolTensor.view(
+                    sampleCount, beamCount, vocabLen
+                )
+
+                # Split the dim0 of length into bigSampleCount two dims.
+                curGruOutput = curGruOutput.view(
+                    [sampleCount, beamCount]
+                    + list(curGruOutput.shape[2:])
+                )
+            else:
+                # Split the dim0 of length into bigSampleCount two dims.
+                curGruOutput = curGruOutput.view(
+                    [sampleCount, beamCount]
+                    + list(curGruOutput.shape[2:])
+                )
+
+                generatedSymbolTensor = self.symbolDecoder(
+                    curGruOutput,
+                    srcSymbolsByGndtol[sli2Gndtol],
+                    gndtol2Tdol[sli2Gndtol],
+                    attnFactorsBySli,
+                    sampleCount,
+                    tensorBoardHook,
+                    beamMode=True,
+                )
 
             return (curGruOutput, curGruState), generatedSymbolTensor
 
