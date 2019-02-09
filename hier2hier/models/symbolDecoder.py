@@ -26,6 +26,7 @@ class SymbolDecoder(ModuleBase):
                 ("Linear2", nn.Linear(int(output_decoder_state_width/2), int(output_decoder_state_width/3))),
                 ("Selu2", nn.SELU()),
                 ("Linear3", nn.Linear(int(output_decoder_state_width/3), 1)),
+                ("BN", nn.BatchNorm1d(1)),
                 ("Sigmoid", nn.Sigmoid()),
             ]))
         else:
@@ -44,10 +45,11 @@ class SymbolDecoder(ModuleBase):
 
     def forward(self,
             curGruOutputByTdol,
-            srcSymbolsByGndtol,
-            gndtol2Tdol,
-            attnFactorsByGndtol,
+            srcSymbolsBySli,
+            sli2Tdol,
+            attnFactorsBySli,
             sampleCount,
+            tensorBoardHook,
             beamMode=False,
             ):
         """
@@ -55,11 +57,11 @@ class SymbolDecoder(ModuleBase):
                 curGruOutput
                     Data: Output of the GRU RNN.
                     Shape: numSamples X output_decoder_state_width
-                srcSymbolsByGndtol
+                srcSymbolsBySli
                     Data: The output symbol that would be generated, if the input symbol at
                         corresponing graph position is just copied.
                     Shape: graphSize X outputVocabSize
-                attnFactorsByGndtol
+                attnFactorsBySli
                     Data: Attention factors for each position in the graph.
                     Shape: graphSize
             Output:
@@ -67,8 +69,8 @@ class SymbolDecoder(ModuleBase):
                     Data:
                         Softmax upon linear Combination of the following two.
                             Hypothesis One: Output symbol cn be generated from original src XML.
-                                Collapse(srcSymbolsByGndtol into (graphSize X TDOL),
-                                    using attnFactorsByGndtol)
+                                Collapse(srcSymbolsBySli into (graphSize X TDOL),
+                                    using attnFactorsBySli)
                             Hypothesis Two: Output symbol must come primarily from gruOutput.
                                 as self.shape(curGruOutputByTdol)
                     Shape: outputVocabSize X sampleCount
@@ -77,14 +79,15 @@ class SymbolDecoder(ModuleBase):
         if self.useSrcPtr:
             # Combine with symbolDecoder and shaper to obtain the expected symbol.
             srcEquivalentSymbolsByTdol = self.accumulateByValue(
-                attnFactorsByGndtol.unsqueeze(1) * srcSymbolsByGndtol,
-                gndtol2Tdol,
+                attnFactorsBySli * srcSymbolsBySli,
+                sli2Tdol,
                 sampleCount,
                 beamMode,
             )
 
             # Use curGruState to compute weight of direct copy versus derived value.
             symbolSrcWeights = self.symbolSrcWeightsNetwork(curGruOutputByTdol)
+            tensorBoardHook.add_histogram("symbolSrcWeights", symbolSrcWeights)
 
             # Compute combined activation.
             combinedSymbolActivationByTdol = srcEquivalentSymbolsByTdol * symbolSrcWeights

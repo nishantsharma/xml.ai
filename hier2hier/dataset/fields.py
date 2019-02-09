@@ -124,6 +124,7 @@ class TargetField(torchtext.data.RawField):
     """
 
     def __init__(self, **kwargs):
+        self.is_target=True
         logger = logging.getLogger(__name__)
         kwargs["preprocessing"] = self.preprocess
         kwargs["postprocessing"] = self.postprocess

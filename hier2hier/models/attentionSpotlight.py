@@ -282,12 +282,6 @@ class AttentionSpotlight(ModuleBase):
             # Add a beam dimension to attnReadyVecsBySli.
             posEncodedVecsBySli = posEncodedVecsBySli.unsqueeze(0)
 
-        if debugAttention or True:
-           normalizedFactorsByGndtol = torch.zeros(posNbrhoodGraphByGndtol[1].shape, device=self.device, requires_grad=False)
-           normalizedFactorsByGndtol[curSli2Gndtol] = normalizedAttentionFactorsByCurSli.squeeze(-1)
-        else:
-               normalizedFactorsByGndtol = None
-
         # Use factors to obtain linear combination of cur SLI subset attnReadyVecs.
         normalizedAttentionVectorsByCurSli = (
             posEncodedVecsBySli
@@ -305,7 +299,7 @@ class AttentionSpotlight(ModuleBase):
 
         checkNans(posEncodedVecsCollapsedByTdol)
 
-        return curSli2Gndtol, posEncodedVecsCollapsedByTdol, normalizedFactorsByGndtol
+        return curSli2Gndtol, posEncodedVecsCollapsedByTdol, normalizedAttentionFactorsByCurSli
 
     @methodProfiler
     def computeAttentionFactors(self,

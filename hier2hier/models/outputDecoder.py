@@ -239,7 +239,7 @@ class OutputDecoder(ModuleBase):
                         curGruState = curGruState.narrow(1, 0, sampleIndexLimit)
                         curGruOutput = curGruOutput.narrow(0, 0, sampleIndexLimit)
 
-                        # Shorten sli2gndtol by dropping all trees
+                        # Shorten sli2Gndtol by dropping all trees
                         # with TDOl index >= sampleIndexLimit.
                         remainingSliIndices = (gndtol2Tdol[sli2Gndtol] < sampleIndexLimit)
                         remainingSliIndices = torch.LongTensor([
@@ -283,7 +283,7 @@ class OutputDecoder(ModuleBase):
                             (
                                 sli2Gndtol,
                                 attnReadyInfoCollapsedByTdol,
-                                attnFactorsByGndtol, 
+                                attnFactorsBySli, 
                             ) = self.attentionSpotlight(
                                 posNbrhoodGraphByGndtol,
                                 attnReadyVecsByGndtol,
@@ -298,6 +298,11 @@ class OutputDecoder(ModuleBase):
                                 dataDebugHook=None,#dataDebugHook
                             )
                             if debugAttention: 
+                               attnFactorsByGndtol = torch.zeros(
+                                       posNbrhoodGraphByGndtol[1].shape,
+                                       device=self.device,
+                                       requires_grad=False)
+                               attnFactorsByGndtol[sli2Gndtol] = attnFactorsBySli.squeeze(-1)
                                debugAttnFactorsByGoi = attnFactorsByGndtol[goi2Gndtol]
                                debugAttentionFactorsImg.append(debugAttnFactorsByGoi.unsqueeze(0)) 
                         else:
@@ -343,10 +348,11 @@ class OutputDecoder(ModuleBase):
                         else:
                             generatedSymbolTensor = self.symbolDecoder(
                                 curGruOutput,
-                                srcSymbolsByGndtol,
-                                gndtol2Tdol,
-                                attnFactorsByGndtol,
+                                srcSymbolsByGndtol[sli2Gndtol],
+                                gndtol2Tdol[sli2Gndtol],
+                                attnFactorsBySli,
                                 sampleIndexLimit,
+                                tensorBoardHook,
                             )
                         outputSymbolsByTdolList.append(generatedSymbolTensor)
 

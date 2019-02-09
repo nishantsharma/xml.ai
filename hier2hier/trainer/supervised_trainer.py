@@ -127,9 +127,6 @@ class SupervisedTrainer(object):
             tgt.setVocabs(resume_checkpoint.vocabs.tgt)
 
             model = resume_checkpoint.model
-            model.set_device(device)
-            if device is not None:
-                model.cuda()
 
             # Define next schema
             if self.modelArgs.schemaVersion is not None:
@@ -149,6 +146,11 @@ class SupervisedTrainer(object):
                     self.modelArgs.schemaVersion,
                 )
             self.modelArgs.schemaVersion = model.schemaVersion
+
+            # Make sure that model is on correct device.
+            model.set_device(device)
+            if device is not None:
+                model.cuda()
 
             # Reconfiguraation upon a new launch.
             modelArgs = model.reconfigureUponLoad(self.modelArgs, self.debug)
