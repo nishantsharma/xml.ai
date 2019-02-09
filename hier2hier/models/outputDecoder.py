@@ -4,6 +4,7 @@ This module implements an attentional decoder for transforming an input XML to o
 from __future__ import unicode_literals, print_function, division
 import unicodedata, string, re, random, sys, copy, math
 from orderedattrdict import AttrDict
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -83,11 +84,19 @@ class OutputDecoder(ModuleBase):
         gruOutputProjectorForAttention /= math.sqrt(self.output_decoder_state_width)
         gruOutputProjectorForAttention.unsqueeze(0)
         self.gruOutputProjectorForAttention = nn.Parameter(gruOutputProjectorForAttention)
+        self.tgtVocabs = tgtVocabs
+        self.runtests = runtests
+
+        # Parameters required for loop initialization.
+        self.initGruOutput = nn.Parameter(torch.zeros(self.output_decoder_state_width, ))
 
         # Network for symbol decoding.
         if schemaVersion == 0:
             self.symbolPreDecoder = nn.Linear(output_decoder_state_width, len(tgtVocabs.all))
             self.symbolDecoder = nn.Softmax(dim=-1)
+            self.buildInitGruState = nn.Linear(
+                self.propagated_info_len,
+                self.output_decoder_stack_depth * self.output_decoder_state_width)
         else:
             self.symbolDecoder = SymbolDecoder(
                 schemaVersion,
@@ -96,14 +105,15 @@ class OutputDecoder(ModuleBase):
                 output_decoder_state_width,
                 device,
             )
-        self.tgtVocabs = tgtVocabs
-        self.runtests = runtests
-
-        # Parameters required for loop initialization.
-        self.initGruOutput = nn.Parameter(torch.zeros(self.output_decoder_state_width, ))
-        self.buildInitGruState = nn.Linear(
-            self.propagated_info_len,
-            self.output_decoder_stack_depth * self.output_decoder_state_width)
+            stateLength = self.output_decoder_stack_depth * self.output_decoder_state_width
+            self.buildInitGruState = nn.Sequential(OrderedDict([
+                ("Linear1", nn.Linear(self.propagated_info_len, stateLength)),
+                ("Selu1", nn.SELU()),
+                ("Linear2", nn.Linear(stateLength, stateLength)),
+                ("Selu2", nn.SELU()),
+                ("Linear3", nn.Linear(stateLength, stateLength)),
+                ("Selu3", nn.SELU()),
+            ]))
 
     def reset_parameters(self, device):
         self.gruCell.reset_parameters()
@@ -125,6 +135,21 @@ class OutputDecoder(ModuleBase):
             symbolDecoder.softMax = self.symbolDecoder
             self.symbolDecoder = symbolDecoder
             del self.symbolPreDecoder
+
+            # Beef up initial GRU state builder.
+            # Use the ealier state.
+            stateLength = self.output_decoder_stack_depth * self.output_decoder_state_width
+            self.buildInitGruState = nn.Sequential(OrderedDict([
+                ("Linear1", self.buildInitGruState),
+                ("Selu1", nn.SELU()),
+                ("Linear2", nn.Linear(stateLength, stateLength)),
+                ("Selu2", nn.SELU()),
+                ("Linear3", nn.Linear(stateLength, stateLength)),
+                ("Selu3", nn.SELU()),
+            ]))
+            for linearSubModule in [self.buildInitGruState.Linear2, self.buildInitGruState.Linear3]:
+                linearSubModule.weights = nn.eye(stateLength, device=self.device)
+                linearSubModule.bias = nn.zeros(stateLength, device=self.device)
         else:
             super().singleStepSchema(schemaVersion)
 
