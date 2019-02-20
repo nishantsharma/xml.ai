@@ -36,6 +36,7 @@ This package supports Python 3.6. We recommend creating a new virtual environmen
 ### Prerequisites
 
 * Install python and ninja. Use following commands on MacOS for installation using macports,
+
   $ sudo port install python36
   $ sudo port install py36-pip
   $ sudo port select --set pip pip36
@@ -43,10 +44,12 @@ This package supports Python 3.6. We recommend creating a new virtual environmen
   $ sudo port install ninja 
 
 * Checkout the repository.
+
   git clone https://github.com/nishantsharma/xml.ai
 
 * Install all python packages mentioned in requirements.txt. 
-  $ sudo pip install -r requirements.txt
+
+$ sudo pip install -r requirements.txt
 
 # Getting Started
 
@@ -55,10 +58,10 @@ Currently, we are running on generated datasets. There are 3 toy datasets that w
 
 | S.No | Dataset ID | Description       | Input Example | Output Example| 
 |------|------------|-------------------|---------------|---------------|
-| 1.   | toy0       | Inverts node.text |  &lt;toyrev&gt;ldhmo&lt;/toyrev&gt; |&lt;toyrev&gt;omhdl&lt;/toyrev&gt; |
-| 2.   | toy1       | Swaps parent and child node tags | &lt;tag1&gt;&lt;tag2 /&gt;&lt;/tag1&gt; |&lt;tag2&gt;&lt;tag1 /&gt;&lt;/tag2&gt; |
+| 1.   | toy0       | Inverts node.text |  <toyrev>ldhmo</toyrev> |<toyrev>omhdl</toyrev> |
+| 2.   | toy1       | Swaps parent and child node tags | <tag1><tag2 /></tag1> |<tag2><tag1 /></tag2> |
 | 3.   | toy2       | Swapping shipping and billing address fields. | Generated data compliant with schema.xsd. | The two addresses swapped. |
-| 4.   | toy3       | Children order is reversed. <BR>Attribute list is rotated. <BR>Tail and text swapped. | &lt;a&gt;&lt;b p1="p1"&gt;&lt;/b&gt; &lt;c p2="p2"&gt;&lt;/c&gt;&lt;/a&gt; | &lt;a&gt;&lt;c p1="p1"&gt;&lt;/c&gt; &lt;b p2="p2"&gt;&lt;/b&gt;&lt;/a&gt; | 
+| 4.   | toy3       | Children order is reversed. <BR>Attribute list is rotated. <BR>Tail and text swapped. | <a><b p1="p1"></b> <c p2="p2"></c></a> | <a><c p1="p1"></c> <b p2="p2"></b></a> | 
 
 ### Preparing toy datasets
 Run script to generate the reverse toy dataset.
@@ -89,7 +92,7 @@ For help.
 ### Evaluate a model 
 To evalaute latest trained model of a domain. 
 
-    ./scripts/evaluate.sh --domain &lt;domainId&gt;
+    ./scripts/evaluate.sh --domain <domainId>
 
 To evaluate on domain toy1.
 
@@ -114,9 +117,9 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
     data/
       +-- training/
             +-- runFolders/
-                  +-- run.&lt;runNo&gt;.&lt;domainId&gt;_&lt;modelSchemaNo&gt;/
+                  +-- run.<runNo>.<domainId>_<modelSchemaNo>/
                   +-- run.00000.toy1_0/
-                        +-- Chk&lt;epochNo&gt;.&lt;batchNo&gt;/
+                        +-- Chk<epochNo>.<batchNo>/
                               +-- input_vocab*.pt
                               +-- output_vocab.pt
                               +-- model.pt
@@ -126,10 +129,10 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
             +-- runFolders/
                   +-- run.00000.toy1_0/
                         +-- Chk*/
-                  +-- run.&lt;runNo&gt;.&lt;domainId&gt;_&lt;modelSchemaNo&gt;/
+                  +-- run.<runNo>.<domainId>_<modelSchemaNo>/
                         +-- Chk*/
       +-- inputs/
-            +-- &lt;domainId&gt;/
+            +-- <domainId>/
                   +-- dev/
                         +-- dataIn*.xml
                         +-- dataOut*.xml
@@ -140,7 +143,7 @@ Training checkpoints are organized by domainId, runNo, modelSchemaNo and functio
                         +-- dataIn*.xml
                         +-- dataOut*.xml
 
-The sample script by default saves checkpoints in the `inputs/&lt;domainId&gt;` folder of the root directory. Look
+The sample script by default saves checkpoints in the `inputs/<domainId>` folder of the root directory. Look
 at the usages of the sample code for more options, including resuming and loading from checkpoints.
 
 ## Some plots 
