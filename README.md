@@ -37,11 +37,11 @@ This package supports Python 3.6. We recommend creating a new virtual environmen
 
 * Install python and ninja. Use following commands on MacOS for installation using macports,
 
-  $ sudo port install python36
-  $ sudo port install py36-pip
-  $ sudo port select --set pip pip36
-  $ sudo port select --set python python36
-  $ sudo port install ninja 
+    $ sudo port install python36 <BR>
+    $ sudo port install py36-pip <BR>
+    $ sudo port select --set pip pip36 <BR>
+    $ sudo port select --set python python36 <BR>
+    $ sudo port install ninja <BR>
 
 * Checkout the repository.
 
@@ -49,7 +49,7 @@ This package supports Python 3.6. We recommend creating a new virtual environmen
 
 * Install all python packages mentioned in requirements.txt. 
 
-$ sudo pip install -r requirements.txt
+    $ sudo pip install -r requirements.txt <BR>
 
 # Getting Started
 
@@ -58,10 +58,10 @@ Currently, we are running on generated datasets. There are 3 toy datasets that w
 
 | S.No | Dataset ID | Description       | Input Example | Output Example| 
 |------|------------|-------------------|---------------|---------------|
-| 1.   | toy0       | Inverts node.text |  <toyrev>ldhmo</toyrev> |<toyrev>omhdl</toyrev> |
-| 2.   | toy1       | Swaps parent and child node tags | <tag1><tag2 /></tag1> |<tag2><tag1 /></tag2> |
+| 1.   | toy0       | Inverts node.text |  &lt;toyrev&gt;ldhmo&lt;/toyrev&gt; |&lt;toyrev&gt;omhdl&lt;/toyrev&gt; |
+| 2.   | toy1       | Swaps parent and child node tags | &lt;tag1&gt;&lt;tag2 /&gt;&lt;/tag1&gt; |&lt;tag2&gt;&lt;tag1 /&gt;&lt;/tag2&gt; |
 | 3.   | toy2       | Swapping shipping and billing address fields. | Generated data compliant with schema.xsd. | The two addresses swapped. |
-| 4.   | toy3       | Children order is reversed. <BR>Attribute list is rotated. <BR>Tail and text swapped. | <a><b p1="p1"></b> <c p2="p2"></c></a> | <a><c p1="p1"></c> <b p2="p2"></b></a> | 
+| 4.   | toy3       | Children order is reversed. <BR>Attribute list is rotated. <BR>Tail and text swapped. | &lt;a&gt;&lt;b p1="p1"&gt;&lt;/b&gt; &lt;c p2="p2"&gt;&lt;/c&gt;&lt;/a&gt; | &lt;a&gt;&lt;c p1="p1"&gt;&lt;/c&gt; &lt;b p2="p2"&gt;&lt;/b&gt;&lt;/a&gt; | 
 
 ### Preparing toy datasets
 Run script to generate the reverse toy dataset.
