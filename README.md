@@ -11,6 +11,34 @@ This is an alpha release. We appreciate any kind of feedback or contribution. In
 2. Bug reports.
 3. Code contributions. If you would join the project, please contact on the forum.
 
+## Contents
+- [Deep Learning for XML](#deep-learning-for-xml)
+  * [Key Features](#key-features)
+- [Installation](#installation)
+    + [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  * [Datasets](#datasets)
+    + [Preparing toy datasets](#preparing-toy-datasets)
+    + [Training](#training)
+    + [Evaluate a model](#evaluate-a-model)
+    + [Tensorboard](#tensorboard)
+    + [Checkpoints](#checkpoints)
+  * [Some plots](#some-plots)
+    + [Tensorboard integration with toy1](#tensorboard-integration-with-toy1)
+    + [Evaluating toy1 training](#evaluating-toy1-training)
+- [Roadmap](#roadmap)
+  * [Application scenarios](#application-scenarios)
+  * [Model roadmap](#model-roadmap)
+  * [Framework roadmap](#framework-roadmap)
+- [Troubleshoots and Contributing](#troubleshoots-and-contributing)
+
+<!--
+    + [Development Cycle](#development-cycle)
+    + [Development Environment](#development-environment)
+    + [Test](#test)
+    + [Code Style](#code-style)
+-->
+
 ## Key Features 
 
 1. Encoder decoder architecture.
